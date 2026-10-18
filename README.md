@@ -4,6 +4,72 @@
 基于本地大模型的检索增强问答，带来源引用与流式输出。**运行时零外网调用**：
 LLM 与嵌入模型全部由本机/本机房的 Ollama 提供。
 
+## 快速开始（新用户 5 分钟启动）
+
+> 目标：拿到代码后做最少改动就能跑起来。全程只需改一个 `.env` 文件。
+
+### 前置要求
+
+- Docker 24+ 与 docker compose v2（`docker compose version` 能正常输出即可）
+- 内存：纯 CPU 跑 `qwen2.5:3b` 建议 8GB+；跑 `qwen2.5:7b` 建议 16GB+
+- 磁盘：首次构建约 2GB，模型权重另需 2GB+
+
+### 第一步：拉取代码
+
+```bash
+git clone <仓库地址> rag-personal
+cd rag-personal
+```
+
+### 第二步：生成配置文件（只改一个值）
+
+```bash
+cp .env.example .env
+```
+
+用编辑器打开 `.env`，**只改这一项**：
+
+```env
+SECRET_KEY=换成一段随机长字符串   # 例如：openssl rand -hex 32 的输出
+```
+
+其余保持默认即可（LLM 用 `qwen2.5:7b`，嵌入用 `bge-m3`）。如果机器内存 < 16GB，
+把 `LLM_MODEL` 改成 `qwen2.5:3b`，并把 `OLLAMA_TIMEOUT` 设为 `300`。
+
+### 第三步：构建并启动
+
+```bash
+docker compose up -d --build
+```
+
+首次构建会拉取 `node:20-alpine`、`python:3.11-slim` 基础镜像并安装依赖，
+国内环境默认走清华 pip 源与 npmmirror，通常 5-10 分钟。
+
+### 第四步：拉取模型（首次必做，之后不再需要）
+
+```bash
+docker compose exec ollama ollama pull qwen2.5:7b   # 或 qwen2.5:3b，须与 .env 的 LLM_MODEL 一致
+docker compose exec ollama ollama pull bge-m3
+```
+
+模型权重存放在 docker 命名卷 `rag-personal_ollama_models`，与业务数据分离，
+重启容器不会丢失。
+
+### 第五步：验证
+
+打开浏览器访问 `http://<主机IP>:8000`，或检查健康状态：
+
+```bash
+curl http://localhost:8000/api/health
+```
+
+五项（SQLite / Ollama / 嵌入模型 / LLM 模型 / Milvus）全绿返回 `200` 即可开始使用。
+
+> 健康检查某一项为红色时，参考下方「常见问题」章节；纯 CPU 首次问答较慢
+> （冷启动载入模型需 2-3 分钟），属正常现象。
+
+---
+
 ## 架构
 
 | 层 | 选型 |
@@ -70,6 +136,9 @@ docker compose exec ollama ollama pull bge-m3
 - 纯 CPU 首问答较慢：模型冷启动 + 3B CPU 推理实测约 2-3 分钟，属正常；建议 `.env` 设
   `OLLAMA_TIMEOUT=300`（默认 120 秒可能超时），模型常驻内存后后续问答明显加快。
 - 验证：`curl http://localhost:8000/api/health`，或 `docker compose ps` 查看健康状态。
+
+> **改了代码如何生效？** 修改后端 / 前端 / 依赖后需要重建镜像，详细步骤见
+> [DEPLOYMENT.md](DEPLOYMENT.md)（含完整构建、增量更新、离线重新打包等场景）。
 
 ## 三、纯离线交付（镜像 + 模型卷搬运）
 
