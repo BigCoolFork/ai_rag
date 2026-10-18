@@ -1,0 +1,16 @@
+# ==========================================================================
+# 增量更新镜像：基于已有的 rag-personal:0.1.0，仅覆盖后端代码与前端产物
+# 用途：当外网镜像源不可用、无法重新拉取 node:20-alpine / python:3.11-slim 时，
+#       快速把本地代码改动打进镜像。构建后仍打回 rag-personal:0.1.0。
+# 构建：docker build -f Dockerfile.update --pull=false -t rag-personal:0.1.0 .
+# ==========================================================================
+FROM rag-personal:0.1.0
+USER root
+
+# 覆盖后端代码（含已在本机构建好的 backend/static 前端产物）
+COPY backend/ /app/backend/
+
+# 还原运行用户与文件归属
+RUN chown -R app:app /app/backend
+
+USER app

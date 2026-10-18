@@ -1,0 +1,68 @@
+/* 全局样式：简约、专业的政企知识库风格 —— 沉稳蓝主色、宽松间距、弱阴影 */
+
+:root {
+  --rag-primary: #2456a6;
+  --rag-primary-light: #e8f0fb;
+  --rag-bg: #f4f6f9;
+  --rag-border: #e4e8ef;
+  --rag-text-main: #1f2733;
+  --rag-text-sub: #6b7686;
+
+  --el-color-primary: #2456a6;
+  --el-color-primary-light-3: #5d84c2;
+  --el-color-primary-light-5: #92abd6;
+  --el-color-primary-light-7: #c2d0e8;
+  --el-color-primary-light-8: #d7e1f1;
+  --el-color-primary-light-9: #ecf2fa;
+  --el-color-primary-dark-2: #1c4483;
+  --el-border-radius-base: 6px;
+  --el-font-family: 'PingFang SC', 'Microsoft YaHei', 'Segoe UI',
+    'Helvetica Neue', Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--rag-bg);
+  color: var(--rag-text-main);
+  font-family: var(--el-font-family);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 引用角标 [n]：与来源卡片联动 */
+.cite-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  margin: 0 2px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--rag-primary);
+  background: var(--rag-primary-light);
+  border-radius: 9px;
+  cursor: pointer;
+  user-select: none;
+  vertical-align: 1px;
+  transition: background-color 0.2s;
+}
+
+.cite-mark:hover {
+  background: #d3e2f7;
+}
+
+.source-card.source-highlight {
+  border-color: var(--rag-primary);
+  box-shadow: 0 0 0 2px var(--rag-primary-light);
+}

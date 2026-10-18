@@ -1,0 +1,36 @@
+# ===== 版本控制 / IDE =====
+.git/
+.gitignore
+.vscode/
+.idea/
+.trae/
+
+# ===== 本地环境与数据（数据通过卷挂载，不进镜像） =====
+.env
+backend/data/
+*.db
+
+# ===== Python 缓存 / 虚拟环境 / 测试（镜像内只保留运行时代码） =====
+**/__pycache__/
+**/*.pyc
+.venv/
+venv/
+backend/tests/
+backend/.pytest_cache/
+
+# ===== 前端（镜像内重新安装与构建；宿主机构建产物不用作镜像内容） =====
+frontend/node_modules/
+frontend/dist/
+backend/static/
+
+# ===== 部署/离线交付临时产物、文档、脚本 =====
+wheelhouse/
+images/
+dist/
+vendor/
+scripts/
+*.tar
+*.tar.gz
+*.md
+plan.md
+docker-compose.override.yml

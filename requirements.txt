@@ -1,0 +1,44 @@
+# ==========================================================================
+# 精简私有化 RAG 知识库系统 — Python 依赖（锁定版本，保证离线可复现安装）
+# 运行环境：Python 3.11（Docker 基础镜像 python:3.11-slim）
+# 说明：以下版本为一组实测兼容组合；升级时先在容器内做最小连通验证
+#       （Ollama 嵌入 → Milvus Lite 入库 → 检索 → LLM 生成）。
+# 备注：pymilvus / milvus-lite 锁定 3.x —— Milvus Lite 自 3.0 起提供
+#       Windows 官方 wheel，Windows 开发机与 Linux 生产容器同版本运行；
+#       2.5.x 无 Windows wheel，切勿回退。
+# 安装：pip install --no-index --find-links=./wheelhouse -r requirements.txt
+# ==========================================================================
+
+# --- Web 框架 ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20          # multipart/form-data 文件上传
+pydantic==2.10.4
+pydantic-settings==2.7.1          # .env 环境变量配置管理
+
+# --- LangChain 编排（本地 Ollama，禁止任何外网模型 SDK） ---
+langchain==0.3.14
+langchain-core==0.3.29
+langchain-text-splitters==0.3.5  # RecursiveCharacterTextSplitter（中文切片）
+langchain-ollama==0.2.2           # 提供 OllamaLLM / OllamaEmbeddings
+
+# --- 向量库：Milvus Lite（嵌入式单文件，非集群；直连 pymilvus ORM，不使用 langchain-milvus） ---
+pymilvus==3.0.2
+milvus-lite==3.2.2
+# numpy/pyarrow 必须显式锁定：langchain 0.3.14 元数据约束 numpy<2，而不锁 pyarrow
+# 时 pip 会装到要求 NumPy>=2 的新版（如 26.x），导致 milvus_lite 导入期
+# ImportError。此组合为 py3.11 manylinux 实测可用。
+numpy==1.26.4
+pyarrow==18.1.0
+
+# --- 文档解析 ---
+PyMuPDF==1.25.2                   # PDF 按页解析（保留真实页码）
+python-docx==1.1.2                # Word(.docx) 段落/表格解析
+openpyxl==3.1.5                   # Excel(.xlsx) 只读流式解析（read_only, data_only）
+
+# --- 认证 ---
+pyjwt==2.10.1                     # JWT 签发与校验
+bcrypt==4.2.1                     # 密码哈希
+
+# --- HTTP 客户端（健康检查探测本地 Ollama） ---
+httpx==0.28.1

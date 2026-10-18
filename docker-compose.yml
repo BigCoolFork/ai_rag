@@ -1,0 +1,84 @@
+# ==========================================================================
+# 精简私有化 RAG 知识库 —— 一键编排：app（FastAPI+前端） + ollama（本地模型）
+#
+# 首次部署（有网机构建）：
+#   1. cp .env.example .env   然后改 SECRET_KEY、LLM_MODEL（默认 qwen2.5:7b）
+#   2. docker compose up -d --build
+#   3. docker compose exec ollama ollama pull qwen2.5:7b
+#      docker compose exec ollama ollama pull nomic-embed-text
+#   4. 打开 http://<主机IP>:8000
+#
+# 纯离线交付（镜像+模型卷搬运）见 README「离线部署」章节。
+# 构建期 pip/npm 源可用同名环境变量覆盖（.env 中设置即可被此处插值）。
+# ==========================================================================
+name: rag-personal
+
+services:
+  # ---------------- 本地大模型 / 嵌入服务（运行时零外网） ----------------
+  # 默认：用 vendor/Dockerfile 自建纯 CPU 镜像（剔除 CUDA/Vulkan，运行时约 50MB），
+  # 适合离线交付的纯 CPU 服务器。GPU 环境请把 build 段注释、改用官方镜像：
+  #   image: ollama/ollama:0.40.5   （含 GPU 库约 3.6GB，需 NVIDIA Container Toolkit）
+  ollama:
+    build:
+      context: ./vendor
+      dockerfile: Dockerfile
+      args:
+        OLLAMA_VERSION: "0.40.5"
+    image: ollama-cpu:0.40.5
+    # image: ollama/ollama:0.40.5
+    container_name: rag-personal-ollama
+    restart: unless-stopped
+    networks:
+      - rag
+    volumes:
+      - ollama_models:/root/.ollama          # 模型权重独立持久卷，与业务数据分离
+    healthcheck:
+      # 镜像自带 CLI，无需 curl；serve 未就绪时 list 返回非 0
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    # ---- 官方镜像 + NVIDIA GPU 时取消下面注释（宿主机需装 Container Toolkit）----
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # ---------------- 应用：FastAPI + 单端口托管前端 ----------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+    image: rag-personal:0.1.0
+    container_name: rag-personal-app
+    restart: unless-stopped
+    networks:
+      - rag
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # 容器间通过服务名访问 Ollama（覆盖 .env 里本机 localhost 的写法）
+      OLLAMA_BASE_URL: http://ollama:11434
+      DATA_DIR: /app/backend/data
+    volumes:
+      # 业务数据（SQLite / Milvus Lite / 上传原文）绑定宿主目录，便于备份与升级
+      - ${DATA_DIR:-./data}:/app/backend/data
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+networks:
+  rag:
+    driver: bridge
+
+volumes:
+  ollama_models:
