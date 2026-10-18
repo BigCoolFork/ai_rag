@@ -6,7 +6,7 @@
 - 每个用户一个 collection，命名 ``user_{user_id}_rag``，首次上传时
   惰性创建，已存在则复用——检索天然按用户物理隔离；
 - Schema v1 字段固定（见下方 FIELD_* 常量），向量维度取
-  settings.embedding_dim（nomic-embed-text = 768）；
+  settings.embedding_dim（bge-m3 = 1024）；
 - 上层业务只暴露 insert / delete / search 三个函数与 SearchResult，
   pymilvus 原生异常一律在本模块捕获并转换为可读业务异常；
 - probe_milvus() 永不抛异常，供 /api/health 与启动期探测使用。

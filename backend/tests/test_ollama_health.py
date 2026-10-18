@@ -52,9 +52,9 @@ def test_normalize_base_url_empty_raises() -> None:
 
 
 def test_model_is_installed_matches_latest_tag() -> None:
-    installed = ["nomic-embed-text:latest", "qwen2.5:7b", "qwen2.5:3b"]
+    installed = ["bge-m3:latest", "qwen2.5:7b", "qwen2.5:3b"]
     # 未带 tag 的名字应匹配 :latest
-    assert model_is_installed(installed, "nomic-embed-text") is True
+    assert model_is_installed(installed, "bge-m3") is True
     assert model_is_installed(installed, "qwen2.5:7b") is True
     assert model_is_installed(installed, "qwen2.5:32b") is False
     assert model_is_installed(installed, "qwen2.5") is False  # 不做前缀模糊匹配
@@ -71,7 +71,7 @@ def _fake_http_ok_full(path: str, timeout: float = 5.0) -> dict:
     if path == "/api/tags":
         return {"models": [
             {"name": "qwen2.5:7b", "model": "qwen2.5:7b"},
-            {"name": "nomic-embed-text:latest"},
+            {"name": "bge-m3:latest"},
         ]}
     raise AssertionError(f"未预期的路径: {path}")
 
@@ -123,7 +123,7 @@ def test_probe_model_missing_lists_pull_command(monkeypatch: pytest.MonkeyPatch)
     assert status.llm is not None and status.llm.ready is False
     assert "ollama pull qwen2.5:7b" in status.llm.pull_command
     assert status.embedding is not None and status.embedding.ready is False
-    assert "ollama pull nomic-embed-text" in status.embedding.pull_command
+    assert "ollama pull bge-m3" in status.embedding.pull_command
 
 
 # ---------------------------------------------------------------------------
@@ -151,8 +151,8 @@ def test_get_embeddings_raises_with_pull_hint(
     with pytest.raises(OllamaModelMissing) as exc_info:
         ollama_client.get_embeddings()
     message = str(exc_info.value)
-    assert "nomic-embed-text" in message
-    assert "ollama pull nomic-embed-text" in message
+    assert "bge-m3" in message
+    assert "ollama pull bge-m3" in message
     assert "docker compose exec ollama" in message  # Docker 离线提示
     ollama_client.reset_clients()
 
@@ -167,9 +167,9 @@ def _ready_status() -> OllamaStatus:
         ollama_ready=True,
         ollama_detail="Ollama 服务可连接（版本 0.5.7）",
         version="0.5.7",
-        installed_models=["qwen2.5:7b", "nomic-embed-text:latest"],
+        installed_models=["qwen2.5:7b", "bge-m3:latest"],
         llm=ModelStatus("qwen2.5:7b", True, "LLM模型已安装"),
-        embedding=ModelStatus("nomic-embed-text", True, "Embedding模型已安装"),
+        embedding=ModelStatus("bge-m3", True, "Embedding模型已安装"),
     )
 
 
@@ -181,8 +181,8 @@ def _down_status() -> OllamaStatus:
     )
     status.llm = ModelStatus("qwen2.5:7b", False, "未探测",
                              pull_command="ollama pull qwen2.5:7b")
-    status.embedding = ModelStatus("nomic-embed-text", False, "未探测",
-                                   pull_command="ollama pull nomic-embed-text")
+    status.embedding = ModelStatus("bge-m3", False, "未探测",
+                                   pull_command="ollama pull bge-m3")
     return status
 
 

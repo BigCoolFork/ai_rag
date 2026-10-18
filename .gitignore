@@ -32,6 +32,9 @@ backend/static/*
 .DS_Store
 Thumbs.db
 
+# ===== 本地设计文档（无需上传） =====
+plan.md
+
 # ===== 离线交付临时产物 / 本机覆盖配置 =====
 wheelhouse/
 images/

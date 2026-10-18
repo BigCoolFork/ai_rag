@@ -12,7 +12,7 @@ LLM 与嵌入模型全部由本机/本机房的 Ollama 提供。
 | 后端 | FastAPI + Uvicorn，单端口同时提供 API 与前端静态托管 |
 | 关系库 | SQLite（用户、文档登记） |
 | 向量库 | Milvus Lite 3.x（嵌入式，数据落在业务数据目录，免独立服务） |
-| 模型 | Ollama 0.40.5：LLM 默认 `qwen2.5:7b`（可换 3b），嵌入 `nomic-embed-text`（768 维） |
+| 模型 | Ollama 0.40.5：LLM 默认 `qwen2.5:7b`（可换 3b），嵌入 `bge-m3`（1024 维，中文/多语言强） |
 | 部署 | 多阶段 Dockerfile + docker compose（app + ollama），数据卷持久化 |
 | ollama 镜像 | 默认自建纯 CPU 镜像 `ollama-cpu:0.40.5`（212MB，剔除 CUDA/Vulkan）；GPU 环境可换官方 `ollama/ollama:0.40.5` |
 
@@ -40,7 +40,7 @@ cd frontend; npm install; npm run build; cd ..
 # 3) 准备 Ollama 并拉模型（模型目录可通过 OLLAMA_MODELS 改到非系统盘）
 ollama serve
 ollama pull qwen2.5:3b            # 或 qwen2.5:7b
-ollama pull nomic-embed-text
+ollama pull bge-m3
 # 4) 配置并启动
 Copy-Item .env.example .env        # 本机开发 OLLAMA_BASE_URL=http://localhost:11434
 cd backend; uvicorn main:app --host 127.0.0.1 --port 8000
@@ -56,7 +56,7 @@ cp .env.example .env
 docker compose up -d --build
 # 首次需要把模型拉到持久卷（镜像不含模型权重）
 docker compose exec ollama ollama pull qwen2.5:7b
-docker compose exec ollama ollama pull nomic-embed-text
+docker compose exec ollama ollama pull bge-m3
 ```
 
 - 应用：http://<主机IP>:8000 ，业务数据持久化在宿主机 `./data`（SQLite、Milvus Lite、上传原文）。
@@ -92,7 +92,7 @@ docker compose build
 #    纯 CPU 离线机建议 qwen2.5:3b）
 docker compose up -d ollama
 docker compose exec ollama ollama pull qwen2.5:3b
-docker compose exec ollama ollama pull nomic-embed-text
+docker compose exec ollama ollama pull bge-m3
 
 # 3. 导出镜像（约 270MB；层已是压缩态，无需再 gzip）
 docker save rag-personal:0.1.0 ollama-cpu:0.40.5 -o dist/images.tar
@@ -196,7 +196,7 @@ docker compose exec app python /tmp/smoke_test.py --base-url http://127.0.0.1:80
 | --- | --- |
 | `SECRET_KEY` | JWT 签名密钥，生产必须改为随机长字符串 |
 | `LLM_MODEL` | 本机 LLM 标签，须与模型卷内已拉取模型一致（默认 `qwen2.5:7b`） |
-| `EMBEDDING_MODEL` | 嵌入模型标签（默认 `nomic-embed-text`，768 维） |
+| `EMBEDDING_MODEL` | 嵌入模型标签（默认 `bge-m3`，1024 维） |
 | `OLLAMA_BASE_URL` | compose 已固定注入 `http://ollama:11434`，无需改 |
 | `MAX_UPLOAD_MB` / `ALLOWED_EXTENSIONS` | 上传大小与白名单扩展名 |
 | `DATA_DIR` | 容器内固定 `/app/backend/data`；宿主落点可用 compose 的 `DATA_DIR` 变量调整（默认 `./data`） |

@@ -634,9 +634,9 @@ def _ollama_ready_status() -> OllamaStatus:
         ollama_ready=True,
         ollama_detail="ok",
         version="0.5.7",
-        installed_models=["qwen2.5:7b", "nomic-embed-text:latest"],
+        installed_models=["qwen2.5:7b", "bge-m3:latest"],
         llm=ModelStatus("qwen2.5:7b", True, "LLM 已安装"),
-        embedding=ModelStatus("nomic-embed-text", True, "Embedding 已安装"),
+        embedding=ModelStatus("bge-m3", True, "Embedding 已安装"),
     )
 
 

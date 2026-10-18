@@ -4,7 +4,7 @@
 1. 以单例方式提供 langchain_ollama.OllamaLLM / OllamaEmbeddings；
    所有参数（地址、模型名、超时）全部来自 config.settings，无硬编码；
 2. 提供独立的健康探测 probe_ollama()：检查 Ollama 服务连通性，
-   并从 /api/tags 判断 LLM 与 nomic-embed-text 模型是否已本地安装；
+   并从 /api/tags 判断 LLM 与嵌入模型（默认 bge-m3）是否已本地安装；
 3. 服务不可达 / 模型缺失时抛出明确可读的异常，错误信息直接给出
    需要执行的 ``ollama pull`` 命令（含 Docker 部署与离线搬运提示）。
 
@@ -142,7 +142,7 @@ def model_is_installed(installed: list[str], wanted: str) -> bool:
     """判断目标模型是否已安装。
 
     Ollama 拉取未带 tag 的模型时 /api/tags 会显示 ``name:latest``，
-    因此 ``nomic-embed-text`` 应能匹配 ``nomic-embed-text:latest``。
+    因此 ``bge-m3`` 应能匹配 ``bge-m3:latest``。
     """
     wanted = wanted.strip()
     names = {n.strip() for n in installed}
@@ -293,7 +293,7 @@ def get_llm() -> Any:
 def get_embeddings() -> Any:
     """获取 OllamaEmbeddings 单例（langchain_ollama.OllamaEmbeddings）。
 
-    首次调用时主动探测服务连通性与 nomic-embed-text 是否存在。
+    首次调用时主动探测服务连通性与嵌入模型（默认 bge-m3）是否存在。
     """
     global _embeddings
     if _embeddings is not None:

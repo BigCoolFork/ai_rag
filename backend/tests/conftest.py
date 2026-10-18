@@ -19,8 +19,8 @@ os.environ["SECRET_KEY"] = "unit-test-secret-key"
 os.environ["ACCESS_TOKEN_EXPIRE_MINUTES"] = "60"
 # 固定模型配置：测试断言基于代码默认模型名，不能被开发机 .env（如临时切换 3B）污染
 os.environ["LLM_MODEL"] = "qwen2.5:7b"
-os.environ["EMBEDDING_MODEL"] = "nomic-embed-text"
-os.environ["EMBEDDING_DIM"] = "768"
+os.environ["EMBEDDING_MODEL"] = "bge-m3"
+os.environ["EMBEDDING_DIM"] = "1024"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
