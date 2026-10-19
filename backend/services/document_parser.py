@@ -325,11 +325,29 @@ def parse_xlsx(path: Path, doc_name: str, source_path: str) -> list[DocumentFrag
     # - 相比「整表一个巨型 fragment 再被 500 字符切分」，块数从数千降到数百，
     #   CPU 嵌入时间从不可接受降到可后台完成。
     target_chunk = max(200, settings.xlsx_chunk_size)
+    header_repeat = settings.xlsx_header_repeat
     try:
         for worksheet in workbook.worksheets:
+            row_iter = worksheet.iter_rows(values_only=True)
+
+            # 第一行作为表头（若存在且非空），后续每个数据块前重复拼接，
+            # 解决跨块后数据行丢失列语义的问题。
+            header_line = ""
+            if header_repeat:
+                try:
+                    first_row = next(row_iter)
+                except StopIteration:
+                    continue  # 空工作表，跳过
+                header_cells = [
+                    clean_inline(str(value))
+                    for value in first_row
+                    if value is not None and clean_inline(str(value))
+                ]
+                header_line = " | ".join(header_cells)
+
             buf: list[str] = []
             cur_len = 0
-            for row in worksheet.iter_rows(values_only=True):
+            for row in row_iter:
                 cells = [
                     clean_inline(str(value))
                     for value in row
@@ -341,7 +359,8 @@ def parse_xlsx(path: Path, doc_name: str, source_path: str) -> list[DocumentFrag
                 buf.append(line)
                 cur_len += len(line) + 1  # +1 留给换行符
                 if cur_len >= target_chunk:
-                    text = clean_text("\n".join(buf))
+                    text = clean_text("\n".join([header_line] + buf)) \
+                        if header_line else clean_text("\n".join(buf))
                     if text:
                         fragments.append(DocumentFragment(
                             text=text,
@@ -354,7 +373,8 @@ def parse_xlsx(path: Path, doc_name: str, source_path: str) -> list[DocumentFrag
                     buf = []
                     cur_len = 0
             if buf:
-                text = clean_text("\n".join(buf))
+                text = clean_text("\n".join([header_line] + buf)) \
+                    if header_line else clean_text("\n".join(buf))
                 if text:
                     fragments.append(DocumentFragment(
                         text=text,
