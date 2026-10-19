@@ -30,6 +30,10 @@ services:
     restart: unless-stopped
     networks:
       - rag
+    # 注意：推理线程数不在 ollama 侧配置（ollama 无 OLLAMA_NUM_THREADS 环境变量），
+    # 而是通过后端代码的 OLLAMA_NUM_THREADS 环境变量在调用时传入 options.num_thread。
+    # Intel 混合架构（P-core + E-core）必须设为性能核数量，否则 E-core 不支持 AVX2
+    # 会拖慢推理数十倍；纯大核服务器设为 0 让 ollama 自动用满全部核心。
     volumes:
       - ollama_models:/root/.ollama          # 模型权重独立持久卷，与业务数据分离
     healthcheck:

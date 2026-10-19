@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     embedding_model: str = "bge-m3"
     embedding_dim: int = 1024
 
+    # 推理线程数：Intel 混合架构（P-core + E-core）需限制为性能核数量，
+    # 否则 E-core 不支持 AVX2 会拖慢推理数十倍。纯大核服务器留 0 让 ollama 自动用满。
+    ollama_num_threads: int = 0
+
     # ---------------- 切片与检索 ----------------
     chunk_size: int = 500
     chunk_overlap: int = 50

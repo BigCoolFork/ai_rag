@@ -279,14 +279,20 @@ def get_llm() -> Any:
     # 且错误边界清晰（先保证服务/模型就位，再构造客户端）
     from langchain_ollama import OllamaLLM
 
-    _llm = OllamaLLM(
-        model=settings.llm_model,
-        base_url=normalize_base_url(settings.ollama_base_url),
+    llm_kwargs: dict[str, Any] = {
+        "model": settings.llm_model,
+        "base_url": normalize_base_url(settings.ollama_base_url),
         # langchain-ollama 0.2.x 无顶层 timeout 字段，超时透传给底层 ollama Client
-        client_kwargs={"timeout": settings.ollama_timeout},
-        temperature=0.2,
-    )
-    logger.info("OllamaLLM 已初始化：model=%s", settings.llm_model)
+        "client_kwargs": {"timeout": settings.ollama_timeout},
+        "temperature": 0.2,
+    }
+    # 混合架构 CPU 需限制线程数为性能核数量，避免 E-core 拖慢推理
+    if settings.ollama_num_threads > 0:
+        llm_kwargs["num_thread"] = settings.ollama_num_threads
+
+    _llm = OllamaLLM(**llm_kwargs)
+    logger.info("OllamaLLM 已初始化：model=%s, num_thread=%s",
+                settings.llm_model, settings.ollama_num_threads or "auto")
     return _llm
 
 
@@ -310,13 +316,31 @@ def get_embeddings() -> Any:
 
     from langchain_ollama import OllamaEmbeddings
 
-    _embeddings = OllamaEmbeddings(
-        model=settings.embedding_model,
-        base_url=normalize_base_url(settings.ollama_base_url),
+    emb_kwargs: dict[str, Any] = {
+        "model": settings.embedding_model,
+        "base_url": normalize_base_url(settings.ollama_base_url),
         # langchain-ollama 0.2.x 无顶层 timeout 字段，超时透传给底层 ollama Client
-        client_kwargs={"timeout": settings.ollama_timeout},
-    )
-    logger.info("OllamaEmbeddings 已初始化：model=%s", settings.embedding_model)
+        "client_kwargs": {"timeout": settings.ollama_timeout},
+    }
+    # 注意：OllamaEmbeddings 不接受 num_thread 顶层参数（pydantic 校验拒绝），
+    # 需在实例化后通过包装 _client.embed 注入 options。
+
+    _embeddings = OllamaEmbeddings(**emb_kwargs)
+
+    # 混合架构 CPU 需限制线程数为性能核数量，避免 E-core 拖慢嵌入
+    if settings.ollama_num_threads > 0:
+        orig_embed = _embeddings._client.embed
+
+        def _patched_embed(*args: Any, **kwargs: Any) -> Any:
+            opts = dict(kwargs.get("options") or {})
+            opts["num_thread"] = settings.ollama_num_threads
+            kwargs["options"] = opts
+            return orig_embed(*args, **kwargs)
+
+        _embeddings._client.embed = _patched_embed  # type: ignore[method-assign]
+
+    logger.info("OllamaEmbeddings 已初始化：model=%s, num_thread=%s",
+                settings.embedding_model, settings.ollama_num_threads or "auto")
     return _embeddings
 
 
