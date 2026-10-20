@@ -28,6 +28,8 @@ services:
     # image: ollama/ollama:0.40.5
     container_name: rag-personal-ollama
     restart: unless-stopped
+    environment:
+      OLLAMA_MODELS: /root/.ollama          # 直接从挂载根目录读模型，避免 /models 子目录 bind mount 冲突
     networks:
       - rag
     # 注意：推理线程数不在 ollama 侧配置（ollama 无 OLLAMA_NUM_THREADS 环境变量），
