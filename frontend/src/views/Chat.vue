@@ -14,14 +14,25 @@
           :class="{ active: conv.id === chatStore.currentId }"
           @click="onSelectConversation(conv.id)"
         >
-          <span class="conv-title" @click.stop="onRenameConversation(conv)">{{ conv.title }}</span>
-          <el-button
-            text
-            class="conv-del"
-            @click.stop="onDeleteConversation(conv.id)"
-          >
-            <el-icon><Delete /></el-icon>
-          </el-button>
+          <span class="conv-title">{{ conv.title }}</span>
+          <div class="conv-actions">
+            <el-button
+              text
+              class="conv-rename"
+              title="重命名"
+              @click.stop="onRenameConversation(conv)"
+            >
+              <el-icon><Edit /></el-icon>
+            </el-button>
+            <el-button
+              text
+              class="conv-del"
+              title="删除"
+              @click.stop="onDeleteConversation(conv.id)"
+            >
+              <el-icon><Delete /></el-icon>
+            </el-button>
+          </div>
         </div>
         <div v-if="chatStore.conversations.length === 0" class="conv-empty">
           暂无对话，点击上方新建
@@ -164,6 +175,7 @@ import {
   CollectionTag,
   Cpu,
   Delete,
+  Edit,
   Loading,
   Plus,
   Promotion,
@@ -467,15 +479,30 @@ onUnmounted(() => {
   min-width: 0;
 }
 
-.conv-del {
+.conv-actions {
+  display: flex;
+  gap: 2px;
   opacity: 0;
   transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+
+.conv-item:hover .conv-actions {
+  opacity: 1;
+}
+
+.conv-rename,
+.conv-del {
   color: var(--rag-text-sub);
   padding: 2px;
 }
 
-.conv-item:hover .conv-del {
-  opacity: 1;
+.conv-rename:hover {
+  color: var(--rag-primary);
+}
+
+.conv-del:hover {
+  color: #f56c6c;
 }
 
 .conv-empty {
