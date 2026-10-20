@@ -287,6 +287,9 @@ def get_llm() -> Any:
         "temperature": 0.2,
         # 限制单次最大生成 token 数，防止模型无限输出导致流式永不结束
         "num_predict": settings.llm_max_tokens,
+        # 停止序列：遇到双换行或新的「问题：」前缀时停止，
+        # 避免模型重复输出或自问自答
+        "stop": ["\n\n", "问题：", "</参考资料>"],
     }
     # 混合架构 CPU 需限制线程数为性能核数量，避免 E-core 拖慢推理
     if settings.ollama_num_threads > 0:

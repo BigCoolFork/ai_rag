@@ -194,7 +194,7 @@ interface Segment {
 }
 
 const CITE_PATTERN = /\[(\d+)\]/g
-const IDLE_TIMEOUT = 30_000 // 30s 无 token 输出自动停止
+const IDLE_TIMEOUT = 60_000 // 60s 无 token 输出自动停止（首 token 可能因检索耗时较长）
 
 const chatStore = useChatStore()
 const displayMessages = computed(() => chatStore.displayMessages)
@@ -314,7 +314,10 @@ async function onSend() {
       return
     }
 
-    if (payload.type === 'token' && typeof payload.data === 'string') {
+    if (payload.type === 'start') {
+      // 检索完成，开始生成，重置空闲超时
+      resetIdleTimer()
+    } else if (payload.type === 'token' && typeof payload.data === 'string') {
       chatStore.appendToken(assistantTempId, payload.data)
       resetIdleTimer()
       scrollToBottom()

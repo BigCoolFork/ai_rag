@@ -40,7 +40,9 @@ _SYSTEM_PROMPT = (
     "不要给出任何猜测性内容；\n"
     "3. 回答中引用资料的结论句末尾必须标注对应来源编号，格式如 [1]、[1][2]；\n"
     "4. 使用简体中文作答，条理清晰，直接回答问题，不输出与问题无关的内容，"
-    "不要复述这些规则。"
+    "不要复述这些规则；\n"
+    "5. 涉及数值汇总（求和、统计、计数等）时，直接给出最终结果，"
+    "禁止展开逐项累加过程或列举大量数字序列。"
 )
 
 
@@ -241,6 +243,9 @@ async def stream_answer(
 
     prompt = build_prompt(question, retrieved.context)
     sources_payload = [source.model_dump() for source in retrieved.sources]
+
+    # 通知前端：检索完成，开始生成（用于重置前端空闲超时计时器）
+    yield _frame({"type": "start", "sources": sources_payload, "hit": True})
 
     answer_buf: list[str] = []
     error_msg: str | None = None

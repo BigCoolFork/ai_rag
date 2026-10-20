@@ -82,7 +82,8 @@ class Settings(BaseSettings):
 
     # ---------------- 对话生成 ----------------
     # 单次生成最大 token 数，防止模型无限输出导致流式永不结束。
-    llm_max_tokens: int = 2048
+    # 小模型容易陷入重复循环（如反复输出数字序列），限制在 512 内足够回答绝大多数问题。
+    llm_max_tokens: int = 512
     # 流式生成空闲超时（秒）：ollama 连续该秒数无 token 输出则放弃，
     # 避免模型卡死时前端一直等待。
     stream_idle_timeout: int = 60
