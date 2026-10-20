@@ -284,12 +284,12 @@ def get_llm() -> Any:
         "base_url": normalize_base_url(settings.ollama_base_url),
         # langchain-ollama 0.2.x 无顶层 timeout 字段，超时透传给底层 ollama Client
         "client_kwargs": {"timeout": settings.ollama_timeout},
-        "temperature": 0.2,
+        "temperature": 0.0,
         # 限制单次最大生成 token 数，防止模型无限输出导致流式永不结束
         "num_predict": settings.llm_max_tokens,
-        # 停止序列：遇到双换行或新的「问题：」前缀时停止，
-        # 避免模型重复输出或自问自答
-        "stop": ["\n\n", "问题：", "</参考资料>"],
+        # 停止序列：遇到新的「问题：」前缀或参考资料结束标记时停止，
+        # 避免模型自问自答或重复输出资料内容（不用 \n\n，否则正常段落换行会被误截断）
+        "stop": ["问题：", "</参考资料>"],
     }
     # 混合架构 CPU 需限制线程数为性能核数量，避免 E-core 拖慢推理
     if settings.ollama_num_threads > 0:
