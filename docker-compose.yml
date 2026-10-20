@@ -35,7 +35,7 @@ services:
     # Intel 混合架构（P-core + E-core）必须设为性能核数量，否则 E-core 不支持 AVX2
     # 会拖慢推理数十倍；纯大核服务器设为 0 让 ollama 自动用满全部核心。
     volumes:
-      - D:/Ollama/models:/root/.ollama     # 模型权重绑定到宿主机 D 盘，便于备份与迁移
+      - D:/RagData/ollama:/root/.ollama     # 模型权重绑定到宿主机专用目录，便于备份与迁移
     healthcheck:
       # 镜像自带 CLI，无需 curl；serve 未就绪时 list 返回非 0
       test: ["CMD", "ollama", "list"]
