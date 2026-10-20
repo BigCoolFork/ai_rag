@@ -159,7 +159,7 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import {
   CollectionTag,
   Cpu,
@@ -185,7 +185,7 @@ const CITE_PATTERN = /\[(\d+)\]/g
 const IDLE_TIMEOUT = 30_000 // 30s 无 token 输出自动停止
 
 const chatStore = useChatStore()
-const displayMessages = chatStore.displayMessages
+const displayMessages = computed(() => chatStore.displayMessages)
 
 const question = ref('')
 const streaming = ref(false)
