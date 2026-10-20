@@ -80,13 +80,21 @@ export const useChatStore = defineStore('chat', {
       this.messages = await chatApi.listMessages(id)
     },
 
-    async createConversation(): Promise<number> {
-      const conv = await chatApi.createConversation()
+    async createConversation(title?: string): Promise<number> {
+      const conv = await chatApi.createConversation(title)
       this.conversations.unshift(conv)
       this.currentId = conv.id
       this.messages = []
       this.pendingMessages = []
       return conv.id
+    },
+
+    async renameConversation(id: number, title: string) {
+      const conv = await chatApi.renameConversation(id, title)
+      const idx = this.conversations.findIndex((c) => c.id === id)
+      if (idx >= 0) {
+        this.conversations[idx] = conv
+      }
     },
 
     async deleteConversation(id: number) {

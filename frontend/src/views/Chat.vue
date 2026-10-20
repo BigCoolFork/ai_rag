@@ -14,7 +14,7 @@
           :class="{ active: conv.id === chatStore.currentId }"
           @click="onSelectConversation(conv.id)"
         >
-          <span class="conv-title">{{ conv.title }}</span>
+          <span class="conv-title" @click.stop="onRenameConversation(conv)">{{ conv.title }}</span>
           <el-button
             text
             class="conv-del"
@@ -337,7 +337,42 @@ async function onNewConversation() {
     ElMessage.warning('请先停止当前生成')
     return
   }
-  await chatStore.createConversation()
+  try {
+    const { value } = await ElMessageBox.prompt('请输入对话名称', '新建对话', {
+      confirmButtonText: '创建',
+      cancelButtonText: '取消',
+      inputPlaceholder: '留空则默认「新对话」',
+      inputValidator: (v: string) => {
+        if (v && v.length > 100) return '名称不能超过 100 个字符'
+        return true
+      },
+    })
+    await chatStore.createConversation(value?.trim() || undefined)
+  } catch {
+    // 用户取消，不处理
+  }
+}
+
+async function onRenameConversation(conv: { id: number; title: string }) {
+  if (streaming.value) {
+    ElMessage.warning('请先停止当前生成')
+    return
+  }
+  try {
+    const { value } = await ElMessageBox.prompt('修改对话名称', '重命名', {
+      confirmButtonText: '保存',
+      cancelButtonText: '取消',
+      inputValue: conv.title,
+      inputValidator: (v: string) => {
+        if (!v || !v.trim()) return '名称不能为空'
+        if (v.length > 100) return '名称不能超过 100 个字符'
+        return true
+      },
+    })
+    await chatStore.renameConversation(conv.id, value.trim())
+  } catch {
+    // 用户取消，不处理
+  }
 }
 
 async function onSelectConversation(id: number) {
