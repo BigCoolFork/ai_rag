@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from typing import Any
 
 from config import settings
 from schemas.chat import (
@@ -189,6 +190,7 @@ def build_answer(user_id: int, question: str) -> ChatResponse:
 async def stream_answer(
     user_id: int,
     question: str,
+    conversation_id: int | None = None,
 ) -> AsyncIterator[str]:
     """生成 SSE 帧的异步生成器（每帧格式 ``data: {json}\\n\\n``）。
 
@@ -197,48 +199,90 @@ async def stream_answer(
     - 一个 ``done`` 事件：携带 sources 与 hit；
     - 生成中途异常：一个 ``error`` 事件后结束。
 
-    注意：检索在开流前完成（见路由），此处再次检索以保持服务自包含；
-    LLM 的阻塞式 stream 通过线程池桥接，避免卡住事件循环。
+    若提供 ``conversation_id``，回答结束后将 user + assistant 消息入库；
+    未提供时自动创建新会话再存储。每用户消息条数超限时自动清理最旧消息。
     """
+    import asyncio
     import json
 
-    from starlette.concurrency import iterate_in_threadpool
+    from services import conversation as conv_service
 
     def _frame(payload: dict) -> str:
         return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
     question = (question or "").strip()
 
-    # 检索阶段（路由建立 SSE 前通常已检索一次做错误前置；这里兜底）
+    # 确定会话 id：未提供则自动创建
+    conv_id = conversation_id
+    if conv_id is None:
+        conv_id = conv_service.create_conversation(user_id)
+    # 若会话标题为默认值，用首条提问命名
+    conv_service.touch_conversation_title(user_id, conv_id, question)
+
+    # 检索阶段
     try:
         retrieved = retrieve_context(user_id, question)
     except Exception as exc:  # noqa: BLE001 - 转为 error 事件，不中断连接
         logger.warning("流式问答检索失败：%s", exc)
         yield _frame({"type": "error", "code": "RETRIEVE_ERROR", "message": str(exc)})
+        # 保存用户提问（无回答）
+        conv_service.save_message(user_id, conv_id, "user", question)
         return
 
     if not retrieved.hit:
         yield _frame({"type": "token", "data": NO_HIT_ANSWER})
         yield _frame({"type": "done", "sources": [], "hit": False})
+        conv_service.save_message(user_id, conv_id, "user", question)
+        conv_service.save_message(
+            user_id, conv_id, "assistant", NO_HIT_ANSWER,
+            sources=[], hit=False,
+        )
         return
 
     prompt = build_prompt(question, retrieved.context)
     sources_payload = [source.model_dump() for source in retrieved.sources]
 
+    answer_buf: list[str] = []
+    error_msg: str | None = None
     try:
         llm = get_llm()
-        # llm.stream 是阻塞生成器，用 iterate_in_threadpool 放到线程池执行
-        async for chunk in iterate_in_threadpool(llm.stream(prompt)):
+        # num_predict 限制最大生成 token 数，防止无限输出
+        stream_iter = llm.stream(prompt)
+        # llm.stream 是阻塞生成器，用 iterate_in_threadpool 放到线程池执行；
+        # 每个 chunk 等待加空闲超时，避免模型卡死时前端一直等待。
+        loop = asyncio.get_running_loop()
+        timeout = settings.stream_idle_timeout
+
+        async def _next_chunk() -> Any:
+            return await loop.run_in_executor(None, next, stream_iter, None)
+
+        while True:
+            try:
+                chunk = await asyncio.wait_for(_next_chunk(), timeout=timeout)
+            except asyncio.TimeoutError:
+                error_msg = f"生成超时（{timeout}s 无输出），已停止"
+                logger.warning("流式问答空闲超时")
+                break
+            if chunk is None:
+                break
             piece = str(chunk)
             if piece:
+                answer_buf.append(piece)
                 yield _frame({"type": "token", "data": piece})
     except Exception as exc:  # noqa: BLE001
+        error_msg = f"本地大模型生成失败：{type(exc).__name__}: {exc}"
         logger.warning("流式问答生成失败：%s", exc)
-        yield _frame({
-            "type": "error",
-            "code": "GENERATION_ERROR",
-            "message": f"本地大模型生成失败：{type(exc).__name__}: {exc}",
-        })
-        return
+        yield _frame({"type": "error", "code": "GENERATION_ERROR", "message": error_msg})
 
-    yield _frame({"type": "done", "sources": sources_payload, "hit": True})
+    # 保存消息（无论成功、超时还是出错，已生成内容都入库）
+    conv_service.save_message(user_id, conv_id, "user", question)
+    conv_service.save_message(
+        user_id, conv_id, "assistant",
+        content="".join(answer_buf) or (error_msg or ""),
+        sources=retrieved.sources if not error_msg else [],
+        hit=not error_msg,
+        error=error_msg,
+    )
+
+    if not error_msg:
+        yield _frame({"type": "done", "sources": sources_payload, "hit": True})

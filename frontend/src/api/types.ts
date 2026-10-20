@@ -105,6 +105,26 @@ export interface SSEErrorEvent {
 
 export type SSEEvent = SSETokenEvent | SSEDoneEvent | SSEErrorEvent
 
+// ---------------- 会话与消息 ----------------
+
+export interface Conversation {
+  id: number
+  title: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ChatMessage {
+  id: number
+  conversation_id: number
+  role: 'user' | 'assistant'
+  content: string
+  sources: SourceItem[]
+  hit: boolean
+  error: string | null
+  created_at: string
+}
+
 // ---------------- 统一错误 ----------------
 
 /** 后端结构化错误 detail：{ code, message } */

@@ -80,6 +80,16 @@ class Settings(BaseSettings):
     # 取 0.6 留足余量（漏答可调至 0.55，乱命中可调至 0.65）。
     retrieve_score_threshold: float = 0.6
 
+    # ---------------- 对话生成 ----------------
+    # 单次生成最大 token 数，防止模型无限输出导致流式永不结束。
+    llm_max_tokens: int = 2048
+    # 流式生成空闲超时（秒）：ollama 连续该秒数无 token 输出则放弃，
+    # 避免模型卡死时前端一直等待。
+    stream_idle_timeout: int = 60
+    # 每用户消息条数上限：超过后自动删除最旧的消息（保留最新 N 条），
+    # 空会话随之级联删除。可调。
+    max_messages_per_user: int = 50
+
     # ---------------- 数据存储 ----------------
     data_dir: Path = BASE_DIR / "data"
     sqlite_path: Path | None = None

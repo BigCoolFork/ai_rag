@@ -17,6 +17,8 @@ import type {
   DocumentListResponse,
   DocumentUploadResp,
   ChatResponse,
+  Conversation,
+  ChatMessage,
   LoginPayload,
   TokenResponse,
   UserInfo,
@@ -146,5 +148,20 @@ export const documentApi = {
 export const chatApi = {
   ask(question: string): Promise<ChatResponse> {
     return http.post('/chat/ask', { question }).then((r) => r.data)
+  },
+  listConversations(): Promise<Conversation[]> {
+    return http.get('/chat/conversations').then((r) => r.data)
+  },
+  createConversation(title?: string): Promise<Conversation> {
+    return http.post('/chat/conversations', { title: title ?? '新对话' }).then((r) => r.data)
+  },
+  listMessages(convId: number): Promise<ChatMessage[]> {
+    return http.get(`/chat/conversations/${convId}/messages`).then((r) => r.data)
+  },
+  renameConversation(convId: number, title: string): Promise<Conversation> {
+    return http.patch(`/chat/conversations/${convId}`, { title }).then((r) => r.data)
+  },
+  deleteConversation(convId: number): Promise<{ deleted: boolean }> {
+    return http.delete(`/chat/conversations/${convId}`).then((r) => r.data)
   },
 }

@@ -18,7 +18,15 @@ from fastapi.responses import StreamingResponse
 
 from core.deps import get_current_user, get_current_user_sse
 from database import get_connection
-from schemas.chat import ChatRequest, ChatResponse
+from schemas.chat import (
+    ChatRequest,
+    ChatResponse,
+    ConversationCreate,
+    ConversationOut,
+    ConversationRename,
+    MessageOut,
+)
+from services import conversation as conv_service
 from services import ollama_client, qa, vector_store
 from services.ollama_client import OllamaModelMissing, OllamaServiceUnavailable
 from services.vector_store import VectorStoreError
@@ -148,6 +156,9 @@ def stream(
     question: str = Query(
         ..., min_length=1, max_length=2000, description="用户提问"
     ),
+    conversation_id: int | None = Query(
+        None, description="会话 id；为空时自动创建新会话"
+    ),
     current_user: sqlite3.Row = Depends(get_current_user_sse),
 ) -> StreamingResponse:
     """以 ``text/event-stream`` 返回 token / done / error 事件。
@@ -156,8 +167,9 @@ def stream(
     （浏览器 EventSource 不能自定义请求头）。检索/生成阶段错误通过
     error 事件回传，HTTP 层仅在鉴权失败或参数非法时返回 401/422。
     """
+    user_id = int(current_user["id"])
     return StreamingResponse(
-        qa.stream_answer(int(current_user["id"]), question),
+        qa.stream_answer(user_id, question, conversation_id=conversation_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -165,3 +177,90 @@ def stream(
             "X-Accel-Buffering": "no",  # 禁用 Nginx 缓冲，保证逐 token 推送
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# 会话与消息管理
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/chat/conversations",
+    response_model=ConversationOut,
+    tags=["会话"],
+    summary="创建会话",
+)
+def create_conversation(
+    payload: ConversationCreate,
+    current_user: sqlite3.Row = Depends(get_current_user),
+) -> ConversationOut:
+    user_id = int(current_user["id"])
+    conv_id = conv_service.create_conversation(user_id, payload.title)
+    conv = conv_service.get_conversation(user_id, conv_id)
+    assert conv is not None
+    return ConversationOut(**conv)
+
+
+@router.get(
+    "/chat/conversations",
+    response_model=list[ConversationOut],
+    tags=["会话"],
+    summary="列出当前用户的会话",
+)
+def list_conversations(
+    current_user: sqlite3.Row = Depends(get_current_user),
+) -> list[ConversationOut]:
+    user_id = int(current_user["id"])
+    return [ConversationOut(**c) for c in conv_service.list_conversations(user_id)]
+
+
+@router.get(
+    "/chat/conversations/{conv_id}/messages",
+    response_model=list[MessageOut],
+    tags=["会话"],
+    summary="获取某会话的消息列表",
+)
+def list_messages(
+    conv_id: int,
+    current_user: sqlite3.Row = Depends(get_current_user),
+) -> list[MessageOut]:
+    user_id = int(current_user["id"])
+    conv = conv_service.get_conversation(user_id, conv_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return conv_service.list_messages(user_id, conv_id)
+
+
+@router.patch(
+    "/chat/conversations/{conv_id}",
+    response_model=ConversationOut,
+    tags=["会话"],
+    summary="重命名会话",
+)
+def rename_conversation(
+    conv_id: int,
+    payload: ConversationRename,
+    current_user: sqlite3.Row = Depends(get_current_user),
+) -> ConversationOut:
+    user_id = int(current_user["id"])
+    ok = conv_service.rename_conversation(user_id, conv_id, payload.title)
+    if not ok:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    conv = conv_service.get_conversation(user_id, conv_id)
+    assert conv is not None
+    return ConversationOut(**conv)
+
+
+@router.delete(
+    "/chat/conversations/{conv_id}",
+    tags=["会话"],
+    summary="删除会话（级联删除消息）",
+)
+def delete_conversation(
+    conv_id: int,
+    current_user: sqlite3.Row = Depends(get_current_user),
+) -> dict:
+    user_id = int(current_user["id"])
+    ok = conv_service.delete_conversation(user_id, conv_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return {"deleted": True}

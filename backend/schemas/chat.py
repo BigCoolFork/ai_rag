@@ -78,3 +78,41 @@ def sse_format(payload: dict[str, Any]) -> str:
     import json
 
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+# ---------------------------------------------------------------------------
+# 会话与消息（持久化到 SQLite）
+# ---------------------------------------------------------------------------
+
+class ConversationCreate(BaseModel):
+    """创建会话请求。"""
+
+    title: str = Field("新对话", max_length=100, description="会话标题，默认「新对话」")
+
+
+class ConversationOut(BaseModel):
+    """会话列表项。"""
+
+    id: int
+    title: str
+    created_at: str
+    updated_at: str
+
+
+class ConversationRename(BaseModel):
+    """重命名会话。"""
+
+    title: str = Field(..., min_length=1, max_length=100)
+
+
+class MessageOut(BaseModel):
+    """单条消息（从 DB 读出后返回前端）。"""
+
+    id: int
+    conversation_id: int
+    role: Literal["user", "assistant"]
+    content: str
+    sources: list[SourceItem] = Field(default_factory=list)
+    hit: bool = True
+    error: str | None = None
+    created_at: str

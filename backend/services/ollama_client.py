@@ -285,6 +285,8 @@ def get_llm() -> Any:
         # langchain-ollama 0.2.x 无顶层 timeout 字段，超时透传给底层 ollama Client
         "client_kwargs": {"timeout": settings.ollama_timeout},
         "temperature": 0.2,
+        # 限制单次最大生成 token 数，防止模型无限输出导致流式永不结束
+        "num_predict": settings.llm_max_tokens,
     }
     # 混合架构 CPU 需限制线程数为性能核数量，避免 E-core 拖慢推理
     if settings.ollama_num_threads > 0:

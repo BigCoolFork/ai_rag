@@ -1,152 +1,179 @@
 <template>
   <div class="chat-page">
-    <!-- 对话区 -->
-    <el-scrollbar ref="listRef" class="chat-scroll">
-      <div class="chat-list">
-        <el-alert
-          v-if="messages.length === 0"
-          type="info"
-          :closable="false"
-          show-icon
-          class="empty-tip"
-          title="向知识库提问"
-          description="系统将在您已上传的文档中检索相关内容，并由本地大模型依据资料作答；答案中的 [n] 角标对应下方来源卡片。未检索到相关资料时不会强行作答。"
-        />
+    <!-- 左侧会话列表 -->
+    <div class="conv-panel">
+      <el-button type="primary" class="new-conv-btn" @click="onNewConversation">
+        <el-icon><Plus /></el-icon>
+        新建对话
+      </el-button>
+      <el-scrollbar class="conv-scroll">
+        <div
+          v-for="conv in chatStore.conversations"
+          :key="conv.id"
+          class="conv-item"
+          :class="{ active: conv.id === chatStore.currentId }"
+          @click="onSelectConversation(conv.id)"
+        >
+          <span class="conv-title">{{ conv.title }}</span>
+          <el-button
+            text
+            class="conv-del"
+            @click.stop="onDeleteConversation(conv.id)"
+          >
+            <el-icon><Delete /></el-icon>
+          </el-button>
+        </div>
+        <div v-if="chatStore.conversations.length === 0" class="conv-empty">
+          暂无对话，点击上方新建
+        </div>
+      </el-scrollbar>
+    </div>
 
-        <template v-for="msg in messages" :key="msg.id">
-          <!-- 用户提问 -->
-          <div v-if="msg.role === 'user'" class="msg-row msg-user">
-            <div class="bubble bubble-user">{{ msg.content }}</div>
-          </div>
+    <!-- 右侧对话区 -->
+    <div class="chat-main">
+      <el-scrollbar ref="listRef" class="chat-scroll">
+        <div class="chat-list">
+          <el-alert
+            v-if="displayMessages.length === 0"
+            type="info"
+            :closable="false"
+            show-icon
+            class="empty-tip"
+            title="向知识库提问"
+            description="系统将在您已上传的文档中检索相关内容，并由本地大模型依据资料作答；答案中的 [n] 角标对应下方来源卡片。未检索到相关资料时不会强行作答。"
+          />
 
-          <!-- 助手回答 -->
-          <div v-else class="msg-row msg-assistant">
-            <el-avatar :size="32" class="assistant-avatar">
-              <el-icon><Cpu /></el-icon>
-            </el-avatar>
-            <div class="bubble-wrap">
-              <div class="bubble bubble-assistant">
-                <span
-                  v-for="(seg, i) in splitCites(msg.content)"
-                  :key="i"
-                >
-                  <sup
-                    v-if="seg.cite && hasSource(msg, seg.index)"
-                    class="cite-mark"
-                    :title="`查看来源 ${seg.index}`"
-                    @click="highlightSource(msg.id, seg.index)"
-                  >[{{ seg.index }}]</sup>
-                  <template v-else>{{ seg.text }}</template>
-                </span>
-                <el-icon v-if="msg.streaming" class="typing-icon is-loading">
-                  <Loading />
-                </el-icon>
-              </div>
+          <template v-for="msg in displayMessages" :key="msg.tempId ?? msg.id">
+            <!-- 用户提问 -->
+            <div v-if="msg.role === 'user'" class="msg-row msg-user">
+              <div class="bubble bubble-user">{{ msg.content }}</div>
+            </div>
 
-              <el-alert
-                v-if="!msg.streaming && !msg.error && msg.hit === false"
-                type="info"
-                :closable="false"
-                show-icon
-                class="hit-alert"
-                title="知识库中未检索到相关内容，可尝试换一种问法或先上传相关文档"
-              />
-              <el-alert
-                v-if="msg.error"
-                type="error"
-                :closable="false"
-                show-icon
-                class="hit-alert"
-                :title="msg.error"
-              />
-
-              <!-- 来源卡片 -->
-              <div
-                v-if="msg.sources.length > 0"
-                class="sources"
-                :id="`sources-${msg.id}`"
-              >
-                <div class="sources-title">
-                  <el-icon><CollectionTag /></el-icon>
-                  参考来源（{{ msg.sources.length }}）
+            <!-- 助手回答 -->
+            <div v-else class="msg-row msg-assistant">
+              <el-avatar :size="32" class="assistant-avatar">
+                <el-icon><Cpu /></el-icon>
+              </el-avatar>
+              <div class="bubble-wrap">
+                <div class="bubble bubble-assistant">
+                  <span
+                    v-for="(seg, i) in splitCites(msg.content)"
+                    :key="i"
+                  >
+                    <sup
+                      v-if="seg.cite && hasSource(msg, seg.index)"
+                      class="cite-mark"
+                      :title="`查看来源 ${seg.index}`"
+                      @click="highlightSource(msg.tempId ?? String(msg.id), seg.index)"
+                    >[{{ seg.index }}]</sup>
+                    <template v-else>{{ seg.text }}</template>
+                  </span>
+                  <el-icon v-if="msg.streaming" class="typing-icon is-loading">
+                    <Loading />
+                  </el-icon>
                 </div>
+
+                <el-alert
+                  v-if="!msg.streaming && !msg.error && msg.hit === false"
+                  type="info"
+                  :closable="false"
+                  show-icon
+                  class="hit-alert"
+                  title="知识库中未检索到相关内容，可尝试换一种问法或先上传相关文档"
+                />
+                <el-alert
+                  v-if="msg.error"
+                  type="error"
+                  :closable="false"
+                  show-icon
+                  class="hit-alert"
+                  :title="msg.error"
+                />
+
+                <!-- 来源卡片 -->
                 <div
-                  v-for="source in msg.sources"
-                  :key="source.index"
-                  :id="`src-${msg.id}-${source.index}`"
-                  class="source-card"
+                  v-if="msg.sources.length > 0"
+                  class="sources"
+                  :id="`sources-${msg.tempId ?? msg.id}`"
                 >
-                  <div class="source-index">{{ source.index }}</div>
-                  <div class="source-body">
-                    <div class="source-head">
-                      <span class="source-name">{{ source.doc_name }}</span>
-                      <el-tag size="small" effect="plain" class="source-loc">
-                        {{ formatLocation(source.page, source.section) }}
-                      </el-tag>
-                      <span class="source-score">
-                        相关度 {{ formatScore(source.score) }}
-                      </span>
+                  <div class="sources-title">
+                    <el-icon><CollectionTag /></el-icon>
+                    参考来源（{{ msg.sources.length }}）
+                  </div>
+                  <div
+                    v-for="source in msg.sources"
+                    :key="source.index"
+                    :id="`src-${msg.tempId ?? msg.id}-${source.index}`"
+                    class="source-card"
+                  >
+                    <div class="source-index">{{ source.index }}</div>
+                    <div class="source-body">
+                      <div class="source-head">
+                        <span class="source-name">{{ source.doc_name }}</span>
+                        <el-tag size="small" effect="plain" class="source-loc">
+                          {{ formatLocation(source.page, source.section) }}
+                        </el-tag>
+                        <span class="source-score">
+                          相关度 {{ formatScore(source.score) }}
+                        </span>
+                      </div>
+                      <div class="source-snippet">{{ source.snippet }}</div>
                     </div>
-                    <div class="source-snippet">{{ source.snippet }}</div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-        </template>
-      </div>
-    </el-scrollbar>
+          </template>
+        </div>
+      </el-scrollbar>
 
-    <!-- 输入区 -->
-    <el-card shadow="never" class="composer">
-      <div class="composer-row">
-        <el-input
-          v-model="question"
-          type="textarea"
-          :rows="2"
-          maxlength="2000"
-          resize="none"
-          show-word-limit
-          placeholder="请输入问题，Enter 发送，Shift + Enter 换行"
-          :disabled="streaming"
-          @keydown.enter.exact.prevent="onSend"
-        />
-        <el-button
-          type="primary"
-          class="send-btn"
-          :loading="streaming"
-          :disabled="!question.trim()"
-          @click="onSend"
-        >
-          <el-icon v-if="!streaming"><Promotion /></el-icon>
-          发送
-        </el-button>
-      </div>
-    </el-card>
+      <!-- 输入区 -->
+      <el-card shadow="never" class="composer">
+        <div class="composer-row">
+          <el-input
+            v-model="question"
+            type="textarea"
+            :rows="2"
+            maxlength="2000"
+            resize="none"
+            show-word-limit
+            placeholder="请输入问题，Enter 发送，Shift + Enter 换行"
+            :disabled="streaming"
+            @keydown.enter.exact.prevent="onSend"
+          />
+          <el-button
+            :type="streaming ? 'danger' : 'primary'"
+            class="send-btn"
+            :loading="streaming && !canStop"
+            :disabled="!streaming && !question.trim()"
+            @click="streaming ? onStop() : onSend()"
+          >
+            <el-icon v-if="streaming"><VideoPause /></el-icon>
+            <el-icon v-else><Promotion /></el-icon>
+            {{ streaming ? '停止' : '发送' }}
+          </el-button>
+        </div>
+      </el-card>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { nextTick, onUnmounted, reactive, ref } from 'vue'
+import { nextTick, onMounted, onUnmounted, ref } from 'vue'
 import {
   CollectionTag,
   Cpu,
+  Delete,
   Loading,
+  Plus,
   Promotion,
+  VideoPause,
 } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { getToken } from '../api/client'
+import { useChatStore } from '../stores/chat'
 import type { SourceItem } from '../api/types'
 import { formatLocation, formatScore } from '../utils/format'
-
-interface ChatMessage {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  sources: SourceItem[]
-  hit: boolean
-  streaming: boolean
-  error: string | null
-}
 
 interface Segment {
   text: string
@@ -155,31 +182,25 @@ interface Segment {
 }
 
 const CITE_PATTERN = /\[(\d+)\]/g
+const IDLE_TIMEOUT = 30_000 // 30s 无 token 输出自动停止
 
-const messages = ref<ChatMessage[]>([])
+const chatStore = useChatStore()
+const displayMessages = chatStore.displayMessages
+
 const question = ref('')
 const streaming = ref(false)
+const canStop = ref(true)
 const listRef = ref()
 let eventSource: EventSource | null = null
-let seq = 0
+let idleTimer: ReturnType<typeof setTimeout> | null = null
 
-function nextId(prefix: string) {
-  seq += 1
-  return `${prefix}-${Date.now()}-${seq}`
-}
-
-/** 将答案文本拆分为普通片段与 [n] 引用标记。 */
 function splitCites(text: string): Segment[] {
   const segments: Segment[] = []
   let lastIndex = 0
   for (const match of text.matchAll(CITE_PATTERN)) {
     if (match.index === undefined) continue
     if (match.index > lastIndex) {
-      segments.push({
-        text: text.slice(lastIndex, match.index),
-        cite: false,
-        index: 0,
-      })
+      segments.push({ text: text.slice(lastIndex, match.index), cite: false, index: 0 })
     }
     segments.push({ text: match[0], cite: true, index: Number(match[1]) })
     lastIndex = match.index + match[0].length
@@ -190,7 +211,7 @@ function splitCites(text: string): Segment[] {
   return segments
 }
 
-function hasSource(msg: ChatMessage, index: number): boolean {
+function hasSource(msg: { sources: SourceItem[] }, index: number): boolean {
   return msg.sources.some((s) => s.index === index)
 }
 
@@ -207,47 +228,71 @@ function highlightSource(messageId: string, index: number) {
   window.setTimeout(() => el.classList.remove('source-highlight'), 1200)
 }
 
+function resetIdleTimer() {
+  if (idleTimer) clearTimeout(idleTimer)
+  idleTimer = setTimeout(() => {
+    if (streaming.value) {
+      ElMessage.warning('生成超时，已自动停止')
+      onStop()
+    }
+  }, IDLE_TIMEOUT)
+}
+
+function clearIdleTimer() {
+  if (idleTimer) {
+    clearTimeout(idleTimer)
+    idleTimer = null
+  }
+}
+
 function finishStream() {
   streaming.value = false
+  canStop.value = true
+  clearIdleTimer()
   eventSource?.close()
   eventSource = null
   scrollToBottom()
 }
 
-function onSend() {
+function onStop() {
+  if (!streaming.value) return
+  canStop.value = false
+  eventSource?.close()
+  eventSource = null
+  // 标记当前流式中的助手消息为停止状态
+  const assistantMsg = chatStore.pendingMessages.find((m) => m.streaming)
+  if (assistantMsg) {
+    assistantMsg.streaming = false
+    assistantMsg.error = '已停止生成'
+    assistantMsg.stopped = true
+  }
+  finishStream()
+  // 停止后重新从后端拉取（已生成内容已入库）
+  chatStore.refreshMessages()
+}
+
+async function onSend() {
   const q = question.value.trim()
   if (!q || streaming.value) return
 
-  const userMsg: ChatMessage = {
-    id: nextId('u'),
-    role: 'user',
-    content: q,
-    sources: [],
-    hit: true,
-    streaming: false,
-    error: null,
+  // 若无当前会话，先创建
+  if (chatStore.currentId == null) {
+    await chatStore.createConversation()
   }
-  // 必须用 reactive 包裹：对象 push 进响应式数组后，数组内是它的 proxy，
-  // 若回调里仍持有普通原对象，累加 content 不会触发视图更新（流式无逐字、done 后不渲染）
-  const assistantMsg = reactive<ChatMessage>({
-    id: nextId('a'),
-    role: 'assistant',
-    content: '',
-    sources: [],
-    hit: true,
-    streaming: true,
-    error: null,
-  })
-  messages.value.push(userMsg, assistantMsg)
+  const convId = chatStore.currentId!
+
+  const { assistantTempId } = chatStore.startStreaming(q)
   question.value = ''
   streaming.value = true
+  canStop.value = true
   scrollToBottom()
 
-  // EventSource 不能自定义请求头，按后端约定通过 ?token= 鉴权
   const url =
     `/api/chat/stream?question=${encodeURIComponent(q)}` +
+    `&conversation_id=${convId}` +
     `&token=${encodeURIComponent(getToken())}`
   eventSource = new EventSource(url)
+  resetIdleTimer()
 
   eventSource.onmessage = (event: MessageEvent<string>) => {
     let payload: { type: string; data?: string; sources?: SourceItem[]; hit?: boolean; message?: string }
@@ -258,32 +303,75 @@ function onSend() {
     }
 
     if (payload.type === 'token' && typeof payload.data === 'string') {
-      assistantMsg.content += payload.data
+      chatStore.appendToken(assistantTempId, payload.data)
+      resetIdleTimer()
       scrollToBottom()
     } else if (payload.type === 'done') {
-      assistantMsg.sources = payload.sources ?? []
-      assistantMsg.hit = payload.hit ?? true
-      assistantMsg.streaming = false
+      chatStore.finishStreaming(assistantTempId, payload.sources ?? [], payload.hit ?? true, null)
       finishStream()
+      chatStore.refreshMessages()
     } else if (payload.type === 'error') {
-      assistantMsg.streaming = false
-      assistantMsg.error = payload.message || '生成失败，请稍后重试'
+      chatStore.finishStreaming(assistantTempId, [], false, payload.message || '生成失败')
       finishStream()
+      chatStore.refreshMessages()
     }
   }
 
   eventSource.onerror = () => {
     if (!streaming.value) return
-    assistantMsg.streaming = false
-    assistantMsg.error =
-      assistantMsg.content.length > 0
-        ? '连接中断，以下为已生成的部分内容'
-        : '无法连接问答服务，请确认服务状态后重试'
+    const assistantMsg = chatStore.pendingMessages.find((m) => m.tempId === assistantTempId)
+    const hasContent = assistantMsg && assistantMsg.content.length > 0
+    chatStore.finishStreaming(
+      assistantTempId,
+      [],
+      false,
+      hasContent ? '连接中断，以下为已生成的部分内容' : '无法连接问答服务，请确认服务状态后重试',
+    )
     finishStream()
+    chatStore.refreshMessages()
   }
 }
 
+async function onNewConversation() {
+  if (streaming.value) {
+    ElMessage.warning('请先停止当前生成')
+    return
+  }
+  await chatStore.createConversation()
+}
+
+async function onSelectConversation(id: number) {
+  if (streaming.value) {
+    ElMessage.warning('请先停止当前生成')
+    return
+  }
+  await chatStore.selectConversation(id)
+  scrollToBottom()
+}
+
+async function onDeleteConversation(id: number) {
+  try {
+    await ElMessageBox.confirm('确认删除该对话？删除后不可恢复。', '删除对话', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+  await chatStore.deleteConversation(id)
+}
+
+onMounted(async () => {
+  await chatStore.fetchConversations()
+  // 默认选中最近的会话
+  if (chatStore.conversations.length > 0) {
+    await chatStore.selectConversation(chatStore.conversations[0].id)
+  }
+})
+
 onUnmounted(() => {
+  clearIdleTimer()
   eventSource?.close()
   eventSource = null
 })
@@ -292,8 +380,82 @@ onUnmounted(() => {
 <style scoped>
 .chat-page {
   display: flex;
-  flex-direction: column;
   height: calc(100vh - 60px - 48px);
+  gap: 0;
+}
+
+/* 左侧会话面板 */
+.conv-panel {
+  width: 220px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--rag-border);
+  background: #fafafa;
+}
+
+.new-conv-btn {
+  margin: 12px;
+}
+
+.conv-scroll {
+  flex: 1;
+  min-height: 0;
+}
+
+.conv-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  margin: 2px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.conv-item:hover {
+  background: #eef2ff;
+}
+
+.conv-item.active {
+  background: var(--rag-primary-light);
+}
+
+.conv-title {
+  font-size: 13.5px;
+  color: var(--rag-text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.conv-del {
+  opacity: 0;
+  transition: opacity 0.15s;
+  color: var(--rag-text-sub);
+  padding: 2px;
+}
+
+.conv-item:hover .conv-del {
+  opacity: 1;
+}
+
+.conv-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--rag-text-sub);
+  font-size: 13px;
+}
+
+/* 右侧对话区 */
+.chat-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
   gap: 14px;
 }
 
@@ -466,6 +628,9 @@ onUnmounted(() => {
 }
 
 @media (max-width: 640px) {
+  .conv-panel {
+    width: 160px;
+  }
   .bubble,
   .bubble-wrap {
     max-width: 88%;

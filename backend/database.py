@@ -57,6 +57,47 @@ CREATE INDEX IF NOT EXISTS idx_documents_user_id
 ON documents (user_id);
 """
 
+# 会话表：每个用户可拥有多个对话
+_CREATE_CONVERSATIONS_SQL = """
+CREATE TABLE IF NOT EXISTS conversations (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     TEXT    NOT NULL,
+    title       TEXT    NOT NULL DEFAULT '新对话',
+    created_at  TEXT    NOT NULL,
+    updated_at  TEXT    NOT NULL
+);
+"""
+
+_CREATE_CONV_INDEX_SQL = """
+CREATE INDEX IF NOT EXISTS idx_conversations_user
+ON conversations (user_id, updated_at DESC);
+"""
+
+# 消息表：归属于某个会话，ON DELETE CASCADE 随会话删除
+_CREATE_MESSAGES_SQL = """
+CREATE TABLE IF NOT EXISTS messages (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    user_id         TEXT    NOT NULL,
+    role            TEXT    NOT NULL,              -- user / assistant
+    content         TEXT    NOT NULL,
+    sources         TEXT,                           -- JSON 数组，assistant 消息才有
+    hit             INTEGER NOT NULL DEFAULT 1,     -- 0/1
+    error           TEXT,
+    created_at      TEXT    NOT NULL
+);
+"""
+
+_CREATE_MSG_INDEX_SQL = """
+CREATE INDEX IF NOT EXISTS idx_messages_conv
+ON messages (conversation_id, id);
+"""
+
+_CREATE_MSG_USER_INDEX_SQL = """
+CREATE INDEX IF NOT EXISTS idx_messages_user
+ON messages (user_id, id);
+"""
+
 # 历史库增量迁移：旧 documents 表缺 total_chunks / processed_chunks 列时补齐。
 # SQLite 不支持 ADD COLUMN IF NOT EXISTS，故用 PRAGMA 检测后再 ALTER。
 _DOCUMENT_EXTRA_COLUMNS = {
@@ -121,6 +162,11 @@ def init_db() -> None:
         conn.execute(_CREATE_DOCUMENTS_SQL)
         _migrate_documents_schema(conn)
         conn.execute(_CREATE_INDEX_SQL)
+        conn.execute(_CREATE_CONVERSATIONS_SQL)
+        conn.execute(_CREATE_CONV_INDEX_SQL)
+        conn.execute(_CREATE_MESSAGES_SQL)
+        conn.execute(_CREATE_MSG_INDEX_SQL)
+        conn.execute(_CREATE_MSG_USER_INDEX_SQL)
 
 
 if __name__ == "__main__":
