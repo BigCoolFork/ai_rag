@@ -32,6 +32,7 @@ from services.document_parser import (
 )
 from services.ingest import ingest_file
 from services.vector_store import (
+    PUBLIC_USER_ID,
     delete_document_by_docid,
     insert_document_chunks,
 )
@@ -51,7 +52,7 @@ _MAX_FILENAME = 255
 _RECORD_COLUMNS = (
     "id, user_id, doc_sha256, original_name, stored_filename, "
     "file_type, file_size, status, error_msg, created_at, "
-    "total_chunks, processed_chunks"
+    "total_chunks, processed_chunks, is_public"
 )
 
 
@@ -154,6 +155,7 @@ def _row_to_dict(row) -> dict:  # noqa: ANN001 - sqlite3.Row
         "created_at": row["created_at"],
         "total_chunks": row["total_chunks"],
         "processed_chunks": row["processed_chunks"],
+        "is_public": row["is_public"],
     }
 
 
@@ -246,15 +248,18 @@ def enqueue_upload(
     user_id: str | int,
     file_bytes: bytes,
     original_filename: str,
+    is_public: bool = False,
 ) -> tuple[UploadResult, Path]:
     """上传同步前半段：校验 → 落盘 → 登记 pending。
 
     不做解析与向量化（耗时操作放后台），返回 (UploadResult, 落盘路径) 供路由层
     把落盘路径交给 BackgroundTasks。命中 success 去重时落盘路径无意义。
 
+    :param is_public: True=公开文档（所有用户可检索），False=私有（仅属主可见）
     :raises 同 ingest_upload 的前半段异常（类型 / 大小 / 空文件 / 磁盘 IO）
     """
     uid = normalize_user_id(user_id)
+    is_public_int = 1 if is_public else 0
 
     # 1) 基础校验
     filename = sanitize_filename(original_filename)
@@ -298,26 +303,26 @@ def enqueue_upload(
                 "UPDATE documents SET status = ?, error_msg = NULL, "
                 "original_name = ?, stored_filename = ?, file_type = ?, "
                 "file_size = ?, created_at = ?, total_chunks = 0, "
-                "processed_chunks = 0 WHERE id = ? AND user_id = ?",
+                "processed_chunks = 0, is_public = ? WHERE id = ? AND user_id = ?",
                 (STATUS_PENDING, filename, stored_filename, file_type,
-                 len(file_bytes), utc_now_iso(), doc_id, uid),
+                 len(file_bytes), utc_now_iso(), is_public_int, doc_id, uid),
             )
     else:
         with db_session() as conn:
             cursor = conn.execute(
                 "INSERT INTO documents (user_id, doc_sha256, original_name, "
                 "stored_filename, file_type, file_size, created_at, status, "
-                "error_msg, total_chunks, processed_chunks) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, 0)",
+                "error_msg, total_chunks, processed_chunks, is_public) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, 0, ?)",
                 (uid, sha256, filename, stored_filename, file_type,
-                 len(file_bytes), utc_now_iso(), STATUS_PENDING),
+                 len(file_bytes), utc_now_iso(), STATUS_PENDING, is_public_int),
             )
             doc_id = cursor.lastrowid
 
     with db_session() as conn:
         record = _find_document(conn, uid, doc_id)
-    logger.info("文档已入队等待后台入库：user_id=%s doc_id=%s size=%d",
-                uid, doc_id, len(file_bytes))
+    logger.info("文档已入队等待后台入库：user_id=%s doc_id=%s size=%d is_public=%d",
+                uid, doc_id, len(file_bytes), is_public_int)
     return UploadResult(record=record, duplicated=False, chunk_count=None), stored_path
 
 
@@ -332,9 +337,19 @@ def process_document_ingest(
     处理中若文档被删除，进度回调会抛 _IngestAborted，本函数静默中止且不残留
     向量；Milvus 写入后若发现文档已被删，则立即清理刚写入的向量。
 
+    向量写入的 collection 由文档 is_public 决定：
+    - 公开文档 → 公共 collection（PUBLIC_USER_ID），所有用户可检索
+    - 私有文档 → 属主专属 collection，仅属主可检索
+
     :return: 实际写入 chunk 数；被中止时返回 None
     """
     uid = normalize_user_id(user_id)
+
+    # 读取文档的可见性，决定向量写入哪个 collection
+    with db_session() as conn:
+        record = _find_document(conn, uid, doc_id)
+    is_public = bool(record and record.get("is_public"))
+    vector_user_id = PUBLIC_USER_ID if is_public else int(uid)
 
     def _on_progress(processed: int, total: int) -> None:
         if not _document_exists(uid, doc_id):
@@ -347,18 +362,18 @@ def process_document_ingest(
         _update_progress(uid, doc_id, total=len(chunks), processed=0)
 
         chunk_count = insert_document_chunks(
-            int(uid), str(doc_id), chunks, progress_callback=_on_progress
+            vector_user_id, str(doc_id), chunks, progress_callback=_on_progress
         )
 
         # 写入 Milvus 后再检测一次：若期间被删除，清理孤儿向量
         if not _document_exists(uid, doc_id):
-            delete_document_by_docid(int(uid), str(doc_id))
+            delete_document_by_docid(vector_user_id, str(doc_id))
             logger.info("文档 %s 入库完成时已被删除，已清理向量", doc_id)
             return None
 
         _mark_success(uid, doc_id)
-        logger.info("文档入库成功：user_id=%s doc_id=%s chunks=%d",
-                    uid, doc_id, chunk_count)
+        logger.info("文档入库成功：user_id=%s doc_id=%s chunks=%d is_public=%s",
+                    uid, doc_id, chunk_count, is_public)
         return chunk_count
     except _IngestAborted:
         logger.info("文档 %s 处理中被删除，后台入库中止", doc_id)
@@ -374,13 +389,16 @@ def ingest_upload(
     user_id: str | int,
     file_bytes: bytes,
     original_filename: str,
+    is_public: bool = False,
 ) -> UploadResult:
     """同步完整入库流水线（单测 / 脚本 / 容器内冒烟使用）。
 
     等价于 enqueue_upload 后立即在当前线程执行 process_document_ingest，
     失败时原样抛出（由调用方映射为 HTTP 错误）。
     """
-    result, stored_path = enqueue_upload(user_id, file_bytes, original_filename)
+    result, stored_path = enqueue_upload(
+        user_id, file_bytes, original_filename, is_public=is_public
+    )
     if result.duplicated:
         return result
     record = result.record
@@ -443,6 +461,10 @@ def list_documents(
 def delete_document(user_id: str | int, doc_id: int) -> tuple[dict, int]:
     """删除整份文档：Milvus 向量 → SQLite 记录 → 磁盘文件。
 
+    根据文档 is_public 决定从哪个 collection 删除向量：
+    - 公开文档 → 公共 collection（PUBLIC_USER_ID）
+    - 私有文档 → 属主专属 collection
+
     :return: (被删记录, 删除的向量数；无精确计数时为 -1)
     :raises DocumentNotFoundError: 文档不存在或不属于该用户
     :raises VectorStoreError: 向量删除失败（此时登记与文件保留不动）
@@ -455,8 +477,12 @@ def delete_document(user_id: str | int, doc_id: int) -> tuple[dict, int]:
             f"文档 {doc_id} 不存在或无权删除。"
         )
 
+    # 根据可见性选择向量所在的 collection
+    is_public = bool(record.get("is_public"))
+    vector_user_id = PUBLIC_USER_ID if is_public else int(uid)
+
     # 向量删除失败时不允许留下“有登记无向量”的半成品，整体中止
-    chunks_removed = delete_document_by_docid(int(uid), str(doc_id))
+    chunks_removed = delete_document_by_docid(vector_user_id, str(doc_id))
 
     with db_session() as conn:
         conn.execute(
@@ -471,6 +497,6 @@ def delete_document(user_id: str | int, doc_id: int) -> tuple[dict, int]:
     except OSError:
         logger.warning("文档登记与向量已删除，但磁盘文件清理失败：%s", stored_path)
 
-    logger.info("文档已删除：user_id=%s doc_id=%s chunks=%s",
-                uid, doc_id, chunks_removed)
+    logger.info("文档已删除：user_id=%s doc_id=%s chunks=%s is_public=%s",
+                uid, doc_id, chunks_removed, is_public)
     return record, chunks_removed

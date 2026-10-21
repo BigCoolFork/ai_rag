@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS documents (
     error_msg        TEXT,                          -- 失败原因，成功时为 NULL
     total_chunks     INTEGER NOT NULL DEFAULT 0,    -- 切片总数（解析后填入，用于进度）
     processed_chunks INTEGER NOT NULL DEFAULT 0,    -- 已向量化切片数（后台分批更新）
+    is_public        INTEGER NOT NULL DEFAULT 0,     -- 0=私有（仅属主可见），1=公开（所有用户可检索）
     UNIQUE (user_id, doc_sha256)
 );
 """
@@ -103,6 +104,7 @@ ON messages (user_id, id);
 _DOCUMENT_EXTRA_COLUMNS = {
     "total_chunks": "INTEGER NOT NULL DEFAULT 0",
     "processed_chunks": "INTEGER NOT NULL DEFAULT 0",
+    "is_public": "INTEGER NOT NULL DEFAULT 0",
 }
 
 

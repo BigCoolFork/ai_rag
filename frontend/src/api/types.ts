@@ -39,6 +39,7 @@ export interface DocumentRecord {
   created_at: string
   total_chunks: number
   processed_chunks: number
+  is_public: number
 }
 
 export interface DocumentUploadResp {
@@ -57,6 +58,7 @@ export interface DocumentListItem {
   created_at: string
   total_chunks: number
   processed_chunks: number
+  is_public: number
 }
 
 export interface DocumentListResponse {

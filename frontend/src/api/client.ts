@@ -131,9 +131,10 @@ export const documentApi = {
       .get('/documents/list', { params: { page, page_size: pageSize } })
       .then((r) => r.data)
   },
-  upload(file: File, onUploadProgress?: AxiosRequestConfig['onUploadProgress']) {
+  upload(file: File, isPublic = false, onUploadProgress?: AxiosRequestConfig['onUploadProgress']) {
     const form = new FormData()
     form.append('file', file)
+    form.append('is_public', isPublic ? '1' : '0')
     return http
       .post<DocumentUploadResp>('/documents/upload', form, {
         headers: { 'Content-Type': 'multipart/form-data' },

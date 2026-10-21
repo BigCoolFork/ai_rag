@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 # Milvus 连接别名（本系统只使用一个本地连接）
 _ALIAS = "rag_local"
 
+# 公开文档共用的虚拟用户 id：所有用户均可检索其向量，但写入/删除由属主控制。
+PUBLIC_USER_ID = 0
+
 # ---------------------------------------------------------------------------
 # Schema v1 字段定义（字段名即入库/检索的唯一白名单，插入时严格按序投影）
 # ---------------------------------------------------------------------------
@@ -142,8 +145,11 @@ class MilvusStatus:
 # ---------------------------------------------------------------------------
 
 def collection_name(user_id: int) -> str:
-    """生成用户专属 collection 名：user_{user_id}_rag。"""
-    if not isinstance(user_id, int) or user_id <= 0:
+    """生成用户专属 collection 名：user_{user_id}_rag。
+
+    user_id=0 为公共 collection（存放所有公开文档向量）。
+    """
+    if not isinstance(user_id, int) or user_id < 0:
         raise VectorStoreError(f"非法的用户 id：{user_id!r}")
     return settings.collection_name_template.format(user_id=user_id)
 
@@ -484,26 +490,12 @@ def delete_document_by_docid(user_id: int, doc_id: Any) -> int:
     return deleted
 
 
-def vector_search(
-    user_id: int,
-    query_text: str,
-    top_k: int | None = None,
+def _search_collection(
+    collection: Any,
+    query_vector: list[float],
+    top_k: int,
 ) -> list[SearchResult]:
-    """在用户专属 collection 内执行 TopK 相似度检索。
-
-    - 用户从未上传（collection 不存在）时直接返回空列表，不自动建集合；
-    - 分数为 COSINE 相似度，越高越相关；阈值过滤由上层 qa 模块负责。
-    """
-    if top_k is None:
-        top_k = settings.retrieve_top_k
-    if top_k <= 0:
-        return []
-
-    collection = _get_existing_collection(user_id)
-    if collection is None:
-        return []
-
-    query_vector = _embed_query(query_text)
+    """对单个 collection 执行 TopK 检索并转换为 SearchResult 列表。"""
     try:
         search_results = collection.search(
             data=[query_vector],
@@ -514,7 +506,8 @@ def vector_search(
         )
     except Exception as exc:  # noqa: BLE001
         raise VectorStoreError(
-            f"Milvus 检索失败（user_id={user_id}）：{type(exc).__name__}: {exc}"
+            f"Milvus 检索失败（collection={collection.name}）："
+            f"{type(exc).__name__}: {exc}"
         ) from exc
 
     hits = search_results[0] if search_results else []
@@ -535,46 +528,100 @@ def vector_search(
     return results
 
 
+def vector_search(
+    user_id: int,
+    query_text: str,
+    top_k: int | None = None,
+) -> list[SearchResult]:
+    """检索用户私有文档 + 所有公开文档，合并后按相似度降序返回 TopK。
+
+    - 用户从未上传（collection 不存在）时跳过该 collection，不自动建集合；
+    - 公共 collection（PUBLIC_USER_ID）不存在时同样跳过；
+    - 分数为 COSINE 相似度，越高越相关；阈值过滤由上层 qa 模块负责。
+    """
+    if top_k is None:
+        top_k = settings.retrieve_top_k
+    if top_k <= 0:
+        return []
+
+    query_vector = _embed_query(query_text)
+
+    # 收集需要检索的 collection：用户自己的 + 公共的
+    candidate_ids: list[int] = []
+    if user_id != PUBLIC_USER_ID:
+        candidate_ids.append(user_id)
+    candidate_ids.append(PUBLIC_USER_ID)
+
+    all_results: list[SearchResult] = []
+    for cid in candidate_ids:
+        collection = _get_existing_collection(cid)
+        if collection is None:
+            continue
+        all_results.extend(_search_collection(collection, query_vector, top_k))
+
+    # 合并去重（同一 chunk_id 只保留最高分）并按分数降序取 TopK
+    seen: dict[int, SearchResult] = {}
+    for r in all_results:
+        existing = seen.get(r.chunk_id)
+        if existing is None or r.score > existing.score:
+            seen[r.chunk_id] = r
+    merged = sorted(seen.values(), key=lambda x: x.score, reverse=True)
+    return merged[:top_k]
+
+
 def get_document_chunks(
     user_id: int,
     doc_id: str,
 ) -> list[SearchResult]:
     """按 doc_chunk_id 升序返回某文档的全部片段（用于文档预览定位）。
 
+    依次尝试用户私有 collection 与公共 collection，命中即返回；
     collection 不存在或文档无数据时返回空列表。
     """
     doc_id_str = _validate_doc_id(doc_id)
-    collection = _get_existing_collection(user_id)
-    if collection is None:
-        return []
 
-    expr = f'{FIELD_DOC_ID} == "{doc_id_str}"'
-    try:
-        # Milvus Lite query：按主键升序，取全部字段
-        entities = collection.query(
-            expr=expr,
-            output_fields=_OUTPUT_FIELDS,
-        )
-    except Exception as exc:  # noqa: BLE001
-        raise VectorStoreError(
-            f"查询文档片段失败（user_id={user_id}, doc_id={doc_id_str}）："
-            f"{type(exc).__name__}: {exc}"
-        ) from exc
+    candidate_ids: list[int] = []
+    if user_id != PUBLIC_USER_ID:
+        candidate_ids.append(user_id)
+    candidate_ids.append(PUBLIC_USER_ID)
 
-    results = [
-        SearchResult(
-            chunk_id=int(e.get(FIELD_PK) or 0),
-            text=str(e.get(FIELD_TEXT) or ""),
-            score=0.0,
-            doc_id=str(e.get(FIELD_DOC_ID) or ""),
-            doc_name=str(e.get(FIELD_DOC_NAME) or ""),
-            source=str(e.get(FIELD_SOURCE) or ""),
-            file_type=str(e.get(FIELD_FILE_TYPE) or ""),
-            page=e.get(FIELD_PAGE),
-            section=e.get(FIELD_SECTION),
-        )
-        for e in entities
-    ]
+    results: list[SearchResult] = []
+    for cid in candidate_ids:
+        collection = _get_existing_collection(cid)
+        if collection is None:
+            continue
+
+        expr = f'{FIELD_DOC_ID} == "{doc_id_str}"'
+        try:
+            entities = collection.query(
+                expr=expr,
+                output_fields=_OUTPUT_FIELDS,
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise VectorStoreError(
+                f"查询文档片段失败（user_id={cid}, doc_id={doc_id_str}）："
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+
+        if not entities:
+            continue
+
+        results = [
+            SearchResult(
+                chunk_id=int(e.get(FIELD_PK) or 0),
+                text=str(e.get(FIELD_TEXT) or ""),
+                score=0.0,
+                doc_id=str(e.get(FIELD_DOC_ID) or ""),
+                doc_name=str(e.get(FIELD_DOC_NAME) or ""),
+                source=str(e.get(FIELD_SOURCE) or ""),
+                file_type=str(e.get(FIELD_FILE_TYPE) or ""),
+                page=e.get(FIELD_PAGE),
+                section=e.get(FIELD_SECTION),
+            )
+            for e in entities
+        ]
+        break  # 同一 doc_id 只存在于一个 collection，命中即停
+
     results.sort(key=lambda r: r.chunk_id)
     return results
 

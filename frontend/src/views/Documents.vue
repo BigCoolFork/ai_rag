@@ -2,6 +2,16 @@
   <div class="documents-page">
     <!-- 上传区 -->
     <el-card shadow="never" class="upload-card">
+      <div class="upload-options">
+        <span class="option-label">可见性：</span>
+        <el-radio-group v-model="uploadPublic" size="small">
+          <el-radio-button :value="false">私有</el-radio-button>
+          <el-radio-button :value="true">公开</el-radio-button>
+        </el-radio-group>
+        <span class="option-hint">
+          {{ uploadPublic ? '公开：所有用户均可检索使用' : '私有：仅当前用户可见' }}
+        </span>
+      </div>
       <el-upload
         drag
         multiple
@@ -44,13 +54,25 @@
         style="width: 100%"
         empty-text="暂无文档，请先上传"
       >
-        <el-table-column label="文档名称" min-width="260" show-overflow-tooltip>
+        <el-table-column label="文档名称" min-width="280" show-overflow-tooltip>
           <template #default="{ row }">
             <div class="doc-name">
               <el-icon class="doc-type-icon" :class="`type-${row.file_type}`">
                 <component :is="typeIcon(row.file_type)" />
               </el-icon>
               <span>{{ row.original_name }}</span>
+              <el-tag
+                v-if="row.is_public"
+                type="success"
+                size="small"
+                effect="plain"
+              >公开</el-tag>
+              <el-tag
+                v-else
+                type="info"
+                size="small"
+                effect="plain"
+              >私有</el-tag>
             </div>
           </template>
         </el-table-column>
@@ -144,6 +166,7 @@ const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
 const pollTimers = ref<number[]>([])
+const uploadPublic = ref(false)
 
 function typeIcon(fileType: string) {
   if (fileType === 'pdf') return Document
@@ -185,7 +208,7 @@ function beforeUpload(file: File): boolean {
 async function handleUpload(options: { file: File }) {
   uploadingCount.value += 1
   try {
-    const result = await documentApi.upload(options.file)
+    const result = await documentApi.upload(options.file, uploadPublic.value)
     if (result.duplicated) {
       ElMessage.info(`「${options.file.name}」已在知识库中，未重复入库`)
     } else {
@@ -272,6 +295,23 @@ onMounted(loadList)
 <style scoped>
 .upload-card {
   margin-bottom: 16px;
+}
+
+.upload-options {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.option-label {
+  font-size: 13px;
+  color: var(--rag-text-main);
+}
+
+.option-hint {
+  font-size: 12px;
+  color: var(--rag-text-sub);
 }
 
 .upload-dragger :deep(.el-upload-dragger) {

@@ -29,6 +29,7 @@ class DocumentRecord(BaseModel):
     created_at: str
     total_chunks: int = 0       # 切片总数（解析后填入）
     processed_chunks: int = 0   # 已向量化切片数（后台分批更新）
+    is_public: int = 0          # 0=私有，1=公开
 
 
 class DocumentUploadResp(BaseModel):
@@ -52,6 +53,7 @@ class DocumentListItem(BaseModel):
     created_at: str
     total_chunks: int = 0
     processed_chunks: int = 0
+    is_public: int = 0          # 0=私有，1=公开
 
 
 class DocumentListResponse(BaseModel):

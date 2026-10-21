@@ -19,6 +19,7 @@ from fastapi import (
     BackgroundTasks,
     Depends,
     File,
+    Form,
     HTTPException,
     Query,
     UploadFile,
@@ -98,6 +99,7 @@ def _raise_upload_error(exc: Exception) -> None:
 def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="文档文件，仅支持 pdf/docx/xlsx"),
+    is_public: int = Form(0, ge=0, le=1, description="0=私有（仅自己可见），1=公开（所有用户可检索）"),
     current_user: sqlite3.Row = Depends(get_current_user),
 ) -> DocumentUploadResp:
     """同步落盘 + 登记 pending，解析与向量化放后台异步执行。
@@ -116,6 +118,7 @@ def upload_document(
             user_id=str(current_user["id"]),
             file_bytes=file_bytes,
             original_filename=file.filename or "",
+            is_public=bool(is_public),
         )
     except Exception as exc:  # noqa: BLE001 - 统一映射，不外泄原生异常
         _raise_upload_error(exc)
