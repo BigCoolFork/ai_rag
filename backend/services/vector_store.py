@@ -626,6 +626,82 @@ def get_document_chunks(
     return results
 
 
+def move_document_chunks(
+    doc_id: Any,
+    source_user_id: int,
+    target_user_id: int,
+) -> int:
+    """将一份文档的全部向量从源 collection 搬移到目标 collection。
+
+    用于文档公开/私有转换：直接拷贝已有向量（不重新嵌入），
+    保持向量完全一致。流程：查源（含向量）→ 删源 → 写目标。
+
+    :param doc_id: 文档业务 id
+    :param source_user_id: 源 collection 对应用户 id
+    :param target_user_id: 目标 collection 对应用户 id
+    :return: 搬移的 chunk 数；源 collection 不存在或无数据时返回 0
+    :raises VectorStoreError: 删除或写入失败
+    """
+    doc_id_str = _validate_doc_id(doc_id)
+    if source_user_id == target_user_id:
+        return 0
+
+    source_collection = _get_existing_collection(source_user_id)
+    if source_collection is None:
+        return 0
+
+    # 1) 查源：含向量字段，用于原样写入目标
+    query_fields = _OUTPUT_FIELDS + [FIELD_VECTOR]
+    expr = f'{FIELD_DOC_ID} == "{doc_id_str}"'
+    try:
+        entities = source_collection.query(
+            expr=expr,
+            output_fields=query_fields,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise VectorStoreError(
+            f"搬移向量-查询源失败（doc_id={doc_id_str}）："
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+
+    if not entities:
+        return 0
+
+    count = len(entities)
+
+    # 2) 删源
+    delete_document_by_docid(source_user_id, doc_id_str)
+
+    # 3) 写目标：按 _INSERT_FIELDS 顺序构造列数据（auto_id 主键不传）
+    columns: list[list[Any]] = [
+        [doc_id_str] * count,
+        [str(e.get(FIELD_SOURCE) or "") for e in entities],
+        [str(e.get(FIELD_DOC_NAME) or "") for e in entities],
+        [str(e.get(FIELD_FILE_TYPE) or "") for e in entities],
+        [e.get(FIELD_PAGE) for e in entities],
+        [e.get(FIELD_SECTION) for e in entities],
+        [str(e.get(FIELD_TEXT) or "") for e in entities],
+        [e.get(FIELD_VECTOR) for e in entities],
+    ]
+
+    target_collection = get_or_create_collection(target_user_id)
+    try:
+        target_collection.insert(columns)
+        target_collection.flush()
+    except Exception as exc:  # noqa: BLE001
+        raise VectorStoreError(
+            f"搬移向量-写入目标失败（doc_id={doc_id_str}）："
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+
+    logger.info(
+        "doc_id=%s 向量搬移完成：%d 个切片 %s→%s",
+        doc_id_str, count,
+        collection_name(source_user_id), collection_name(target_user_id),
+    )
+    return count
+
+
 # ---------------------------------------------------------------------------
 # 健康探测（永不抛异常）
 # ---------------------------------------------------------------------------

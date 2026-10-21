@@ -65,6 +65,14 @@ class DocumentListResponse(BaseModel):
     page_size: int = Field(ge=1)
 
 
+class DocumentVisibilityResp(BaseModel):
+    """切换文档公开/私有后的响应。"""
+
+    id: int
+    is_public: int = 0
+    chunks_moved: int = 0
+
+
 class DocumentDeleteResp(BaseModel):
     """删除响应：确认登记记录与向量切片均已删除。"""
 

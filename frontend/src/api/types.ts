@@ -68,6 +68,12 @@ export interface DocumentListResponse {
   page_size: number
 }
 
+export interface DocumentVisibilityResp {
+  id: number
+  is_public: number
+  chunks_moved: number
+}
+
 export interface DocumentChunkItem {
   chunk_id: number
   text: string

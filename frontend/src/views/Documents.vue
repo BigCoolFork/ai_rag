@@ -105,8 +105,20 @@
         <el-table-column label="上传时间" width="170">
           <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="90" align="center" fixed="right">
+        <el-table-column label="操作" width="160" align="center" fixed="right">
           <template #default="{ row }">
+            <el-tooltip
+              :content="row.status !== 'success' ? '仅已入库文档可切换可见性' : (row.is_public ? '转为私有' : '转为公开')"
+              placement="top"
+            >
+              <el-button
+                link
+                :type="row.is_public ? 'warning' : 'success'"
+                :icon="row.is_public ? Lock : Share"
+                :disabled="row.status !== 'success'"
+                @click="onToggleVisibility(row)"
+              >{{ row.is_public ? '私有' : '公开' }}</el-button>
+            </el-tooltip>
             <el-popconfirm
               title="确认删除该文档及其全部问答切片？"
               confirm-button-text="删除"
@@ -146,7 +158,9 @@ import {
   Document,
   Files,
   Loading,
+  Lock,
   Refresh,
+  Share,
   Tickets,
   UploadFilled,
   WarningFilled,
@@ -263,6 +277,21 @@ onUnmounted(() => {
   pollTimers.value.forEach((t) => clearTimeout(t))
   pollTimers.value = []
 })
+
+async function onToggleVisibility(row: DocumentListItem) {
+  const target = !row.is_public
+  try {
+    const resp = await documentApi.setVisibility(row.id, target)
+    row.is_public = resp.is_public
+    ElMessage.success(
+      `「${row.original_name}」已转为${resp.is_public ? '公开' : '私有'}（搬移 ${resp.chunks_moved} 个切片）`,
+    )
+  } catch (error) {
+    ElMessage.error(
+      error instanceof ApiError ? error.message : '切换可见性失败',
+    )
+  }
+}
 
 async function onDelete(row: DocumentListItem) {
   try {

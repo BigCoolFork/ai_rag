@@ -33,8 +33,10 @@ from services.document_parser import (
 from services.ingest import ingest_file
 from services.vector_store import (
     PUBLIC_USER_ID,
+    VectorStoreError,
     delete_document_by_docid,
     insert_document_chunks,
+    move_document_chunks,
 )
 
 logger = logging.getLogger(__name__)
@@ -500,3 +502,63 @@ def delete_document(user_id: str | int, doc_id: int) -> tuple[dict, int]:
     logger.info("文档已删除：user_id=%s doc_id=%s chunks=%s is_public=%s",
                 uid, doc_id, chunks_removed, is_public)
     return record, chunks_removed
+
+
+class DocumentStateError(UploadError):
+    """文档状态不允许执行该操作（如对非 success 文档切换可见性）。"""
+
+
+def set_document_visibility(
+    user_id: str | int,
+    doc_id: int,
+    is_public: bool,
+) -> tuple[dict, int]:
+    """切换文档公开/私有：在用户 collection 与公共 collection 间搬移向量。
+
+    - 仅属主可操作（_find_document 校验 user_id）；
+    - 仅 status=success 的文档可转换（pending/failed 无向量可搬）；
+    - 若目标可见性与当前一致，直接返回不做操作。
+
+    :return: (更新后的记录, 搬移的 chunk 数)
+    :raises DocumentNotFoundError: 文档不存在或不属于该用户
+    :raises DocumentStateError: 文档状态非 success
+    :raises VectorStoreError: 向量搬移失败（此时向量可能已丢失，记录置 failed）
+    """
+    uid = normalize_user_id(user_id)
+    with db_session() as conn:
+        record = _find_document(conn, uid, doc_id)
+    if record is None:
+        raise DocumentNotFoundError(
+            f"文档 {doc_id} 不存在或无权操作。"
+        )
+
+    current_is_public = bool(record.get("is_public"))
+    target_is_public = bool(is_public)
+    if current_is_public == target_is_public:
+        return record, 0
+
+    if record["status"] != STATUS_SUCCESS:
+        raise DocumentStateError(
+            f"仅已入库（success）的文档可切换可见性，当前状态：{record['status']}"
+        )
+
+    source_uid = PUBLIC_USER_ID if current_is_public else int(uid)
+    target_uid = PUBLIC_USER_ID if target_is_public else int(uid)
+
+    try:
+        moved = move_document_chunks(str(doc_id), source_uid, target_uid)
+    except VectorStoreError:
+        # 向量搬移失败：可能已丢，标记 failed 让用户重新上传
+        _mark_failed(uid, doc_id, VectorStoreError("向量搬移失败，请重新上传"))
+        raise
+
+    with db_session() as conn:
+        conn.execute(
+            "UPDATE documents SET is_public = ? WHERE id = ? AND user_id = ?",
+            (1 if target_is_public else 0, doc_id, uid),
+        )
+        record = _find_document(conn, uid, doc_id)
+
+    logger.info("文档可见性已切换：user_id=%s doc_id=%s is_public=%s moved=%d",
+                uid, doc_id, target_is_public, moved)
+    return record or {}, moved

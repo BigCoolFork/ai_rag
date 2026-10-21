@@ -17,6 +17,7 @@ import sqlite3
 from fastapi import (
     APIRouter,
     BackgroundTasks,
+    Body,
     Depends,
     File,
     Form,
@@ -35,6 +36,7 @@ from schemas.document import (
     DocumentListResponse,
     DocumentRecord,
     DocumentUploadResp,
+    DocumentVisibilityResp,
 )
 from services.document_parser import (
     CorruptedDocumentError,
@@ -46,12 +48,14 @@ from services.document_parser import (
 )
 from services.upload_ingest import (
     DocumentNotFoundError,
+    DocumentStateError,
     UploadError,
     UploadStorageError,
     delete_document,
     enqueue_upload,
     list_documents,
     process_document_ingest,
+    set_document_visibility,
 )
 from services.vector_store import VectorStoreError, get_document_chunks
 
@@ -186,6 +190,42 @@ def remove_document(
         raise _error(503, "VECTOR_STORE_ERROR", str(exc)) from exc
 
     return DocumentDeleteResp(id=doc_id, deleted=True, chunks_removed=chunks_removed)
+
+
+@router.put(
+    "/{doc_id}/visibility",
+    response_model=DocumentVisibilityResp,
+    summary="切换文档公开/私有（搬移向量到对应 collection）",
+)
+def update_document_visibility(
+    doc_id: int,
+    is_public: int = Body(..., ge=0, le=1, embed=True, description="0=私有，1=公开"),
+    current_user: sqlite3.Row = Depends(get_current_user),
+) -> DocumentVisibilityResp:
+    """在用户私有 collection 与公共 collection 间搬移文档向量。
+
+    - 不存在或不属于当前用户：404；
+    - 文档状态非 success（pending/failed）：400；
+    - 向量库搬移失败：503（此时文档可能被标记为 failed）。
+    """
+    try:
+        record, moved = set_document_visibility(
+            user_id=str(current_user["id"]),
+            doc_id=doc_id,
+            is_public=bool(is_public),
+        )
+    except DocumentNotFoundError as exc:
+        raise _error(404, "DOCUMENT_NOT_FOUND", str(exc)) from exc
+    except DocumentStateError as exc:
+        raise _error(400, "DOCUMENT_STATE_ERROR", str(exc)) from exc
+    except VectorStoreError as exc:
+        raise _error(503, "VECTOR_STORE_ERROR", str(exc)) from exc
+
+    return DocumentVisibilityResp(
+        id=doc_id,
+        is_public=int(record.get("is_public", 0)),
+        chunks_moved=moved,
+    )
 
 
 @router.get(

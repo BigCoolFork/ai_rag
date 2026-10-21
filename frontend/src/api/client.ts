@@ -17,6 +17,7 @@ import type {
   DocumentChunksResp,
   DocumentListResponse,
   DocumentUploadResp,
+  DocumentVisibilityResp,
   ChatResponse,
   Conversation,
   ChatMessage,
@@ -147,6 +148,11 @@ export const documentApi = {
   },
   getChunks(docId: number): Promise<DocumentChunksResp> {
     return http.get(`/documents/${docId}/chunks`).then((r) => r.data)
+  },
+  setVisibility(docId: number, isPublic: boolean): Promise<DocumentVisibilityResp> {
+    return http
+      .put(`/documents/${docId}/visibility`, { is_public: isPublic ? 1 : 0 })
+      .then((r) => r.data)
   },
 }
 
