@@ -69,3 +69,21 @@ class DocumentDeleteResp(BaseModel):
     id: int
     deleted: bool = True
     chunks_removed: int = -1  # Milvus 无精确计数时为 -1
+
+
+class DocumentChunkItem(BaseModel):
+    """文档单条切片（预览用，按 chunk_id 升序）。"""
+
+    chunk_id: int
+    text: str
+    page: int | None = None
+    section: str | None = None
+
+
+class DocumentChunksResp(BaseModel):
+    """文档全部切片响应。"""
+
+    doc_id: int
+    doc_name: str
+    file_type: str
+    chunks: list[DocumentChunkItem] = Field(default_factory=list)

@@ -14,6 +14,7 @@ import axios, {
   type AxiosRequestConfig,
 } from 'axios'
 import type {
+  DocumentChunksResp,
   DocumentListResponse,
   DocumentUploadResp,
   ChatResponse,
@@ -142,6 +143,9 @@ export const documentApi = {
   },
   remove(docId: number): Promise<{ id: number; deleted: boolean; chunks_removed: number }> {
     return http.delete(`/documents/${docId}`).then((r) => r.data)
+  },
+  getChunks(docId: number): Promise<DocumentChunksResp> {
+    return http.get(`/documents/${docId}/chunks`).then((r) => r.data)
   },
 }
 

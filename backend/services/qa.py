@@ -99,6 +99,7 @@ def _to_source(index: int, hit: SearchResult) -> SourceItem:
         section=hit.section,
         snippet=snippet,
         score=round(hit.score, 6),
+        chunk_id=hit.chunk_id,
     )
 
 

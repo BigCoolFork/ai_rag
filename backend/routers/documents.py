@@ -27,6 +27,8 @@ from fastapi import (
 
 from core.deps import get_current_user
 from schemas.document import (
+    DocumentChunksResp,
+    DocumentChunkItem,
     DocumentDeleteResp,
     DocumentListItem,
     DocumentListResponse,
@@ -50,7 +52,7 @@ from services.upload_ingest import (
     list_documents,
     process_document_ingest,
 )
-from services.vector_store import VectorStoreError
+from services.vector_store import VectorStoreError, get_document_chunks
 
 router = APIRouter()
 
@@ -181,3 +183,43 @@ def remove_document(
         raise _error(503, "VECTOR_STORE_ERROR", str(exc)) from exc
 
     return DocumentDeleteResp(id=doc_id, deleted=True, chunks_removed=chunks_removed)
+
+
+@router.get(
+    "/{doc_id}/chunks",
+    response_model=DocumentChunksResp,
+    summary="获取文档全部切片（按 chunk_id 升序，用于预览定位）",
+)
+def get_document_chunks_api(
+    doc_id: int,
+    current_user: sqlite3.Row = Depends(get_current_user),
+) -> DocumentChunksResp:
+    """返回该文档的全部切片，按向量库主键升序（≈ 文档原始顺序）。
+
+    - 不存在或不属于当前用户：404；
+    - 向量库异常：503。
+    """
+    try:
+        chunks = get_document_chunks(
+            user_id=int(current_user["id"]), doc_id=str(doc_id)
+        )
+    except VectorStoreError as exc:
+        raise _error(503, "VECTOR_STORE_ERROR", str(exc)) from exc
+
+    if not chunks:
+        raise _error(404, "DOCUMENT_NOT_FOUND", f"文档 {doc_id} 不存在或无切片数据")
+
+    return DocumentChunksResp(
+        doc_id=doc_id,
+        doc_name=chunks[0].doc_name,
+        file_type=chunks[0].file_type,
+        chunks=[
+            DocumentChunkItem(
+                chunk_id=c.chunk_id,
+                text=c.text,
+                page=c.page,
+                section=c.section,
+            )
+            for c in chunks
+        ],
+    )

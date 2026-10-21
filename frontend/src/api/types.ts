@@ -66,6 +66,20 @@ export interface DocumentListResponse {
   page_size: number
 }
 
+export interface DocumentChunkItem {
+  chunk_id: number
+  text: string
+  page: number | null
+  section: string | null
+}
+
+export interface DocumentChunksResp {
+  doc_id: number
+  doc_name: string
+  file_type: string
+  chunks: DocumentChunkItem[]
+}
+
 // ---------------- 问答 ----------------
 
 export interface SourceItem {
@@ -77,6 +91,7 @@ export interface SourceItem {
   section: string | null
   snippet: string
   score: number
+  chunk_id?: number | null
 }
 
 export interface ChatResponse {

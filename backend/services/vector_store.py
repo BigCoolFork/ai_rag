@@ -51,7 +51,7 @@ _INSERT_FIELDS: list[str] = [
 ]
 # 检索回传的元数据字段（不含向量本身）
 _OUTPUT_FIELDS: list[str] = [
-    FIELD_DOC_ID, FIELD_SOURCE, FIELD_DOC_NAME, FIELD_FILE_TYPE,
+    FIELD_PK, FIELD_DOC_ID, FIELD_SOURCE, FIELD_DOC_NAME, FIELD_FILE_TYPE,
     FIELD_PAGE, FIELD_SECTION, FIELD_TEXT,
 ]
 
@@ -93,6 +93,7 @@ class EmbeddingError(VectorStoreError):
 class SearchResult:
     """单条向量检索命中。"""
 
+    chunk_id: int
     text: str
     score: float
     doc_id: str
@@ -104,6 +105,7 @@ class SearchResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "chunk_id": self.chunk_id,
             "text": self.text,
             "score": self.score,
             "doc_id": self.doc_id,
@@ -520,6 +522,7 @@ def vector_search(
     for hit in hits:
         entity = hit.entity
         results.append(SearchResult(
+            chunk_id=int(entity.get(FIELD_PK) or 0),
             text=str(entity.get(FIELD_TEXT) or ""),
             score=float(hit.distance),
             doc_id=str(entity.get(FIELD_DOC_ID) or ""),
@@ -529,6 +532,50 @@ def vector_search(
             page=entity.get(FIELD_PAGE),       # int 或 None
             section=entity.get(FIELD_SECTION),  # str 或 None
         ))
+    return results
+
+
+def get_document_chunks(
+    user_id: int,
+    doc_id: str,
+) -> list[SearchResult]:
+    """按 doc_chunk_id 升序返回某文档的全部片段（用于文档预览定位）。
+
+    collection 不存在或文档无数据时返回空列表。
+    """
+    doc_id_str = _validate_doc_id(doc_id)
+    collection = _get_existing_collection(user_id)
+    if collection is None:
+        return []
+
+    expr = f'{FIELD_DOC_ID} == "{doc_id_str}"'
+    try:
+        # Milvus Lite query：按主键升序，取全部字段
+        entities = collection.query(
+            expr=expr,
+            output_fields=_OUTPUT_FIELDS,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise VectorStoreError(
+            f"查询文档片段失败（user_id={user_id}, doc_id={doc_id_str}）："
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+
+    results = [
+        SearchResult(
+            chunk_id=int(e.get(FIELD_PK) or 0),
+            text=str(e.get(FIELD_TEXT) or ""),
+            score=0.0,
+            doc_id=str(e.get(FIELD_DOC_ID) or ""),
+            doc_name=str(e.get(FIELD_DOC_NAME) or ""),
+            source=str(e.get(FIELD_SOURCE) or ""),
+            file_type=str(e.get(FIELD_FILE_TYPE) or ""),
+            page=e.get(FIELD_PAGE),
+            section=e.get(FIELD_SECTION),
+        )
+        for e in entities
+    ]
+    results.sort(key=lambda r: r.chunk_id)
     return results
 
 

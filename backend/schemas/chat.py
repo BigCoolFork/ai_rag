@@ -36,6 +36,7 @@ class SourceItem(BaseModel):
     section: str | None = None    # DOCX 标题 / XLSX 工作表名
     snippet: str = Field("", description="命中片段原文（截断展示）")
     score: float = Field(..., ge=0.0, le=1.0, description="COSINE 相似度")
+    chunk_id: int | None = Field(None, description="向量库主键，用于文档预览定位")
 
 
 class ChatResponse(BaseModel):

@@ -116,6 +116,7 @@
                     :key="source.index"
                     :id="`src-${msg.tempId ?? msg.id}-${source.index}`"
                     class="source-card"
+                    @click="openSourcePreview(source)"
                   >
                     <div class="source-index">{{ source.index }}</div>
                     <div class="source-body">
@@ -166,6 +167,12 @@
         </div>
       </el-card>
     </div>
+
+    <DocumentPreview
+      v-model="previewVisible"
+      :doc-id="previewDocId"
+      :highlight-chunk-id="previewChunkId"
+    />
   </div>
 </template>
 
@@ -186,6 +193,7 @@ import { getToken } from '../api/client'
 import { useChatStore } from '../stores/chat'
 import type { SourceItem } from '../api/types'
 import { formatLocation, formatScore } from '../utils/format'
+import DocumentPreview from '../components/DocumentPreview.vue'
 
 interface Segment {
   text: string
@@ -205,6 +213,18 @@ const canStop = ref(true)
 const listRef = ref()
 let eventSource: EventSource | null = null
 let idleTimer: ReturnType<typeof setTimeout> | null = null
+
+// 文档预览弹窗
+const previewVisible = ref(false)
+const previewDocId = ref<number | null>(null)
+const previewChunkId = ref<number | null>(null)
+
+function openSourcePreview(source: SourceItem) {
+  if (!source.doc_id) return
+  previewDocId.value = Number(source.doc_id)
+  previewChunkId.value = source.chunk_id ?? null
+  previewVisible.value = true
+}
 
 function splitCites(text: string): Segment[] {
   const segments: Segment[] = []
@@ -619,7 +639,13 @@ onUnmounted(() => {
   background: #fff;
   border: 1px solid var(--rag-border);
   border-radius: 8px;
+  cursor: pointer;
   transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.source-card:hover {
+  border-color: #409eff;
+  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.12);
 }
 
 .source-index {
